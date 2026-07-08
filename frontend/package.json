@@ -1,0 +1,35 @@
+{
+  "name": "swiftbase-cms-frontend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^7.3.0",
+    "@fortawesome/free-regular-svg-icons": "^7.3.0",
+    "@fortawesome/free-solid-svg-icons": "^7.3.0",
+    "@fortawesome/vue-fontawesome": "^3.3.0",
+    "chart.js": "^4.4.1",
+    "pinia": "^2.1.7",
+    "prismjs": "^1.30.0",
+    "quill": "^2.0.0-rc.5",
+    "swiftbase-cms-shared": "file:../shared",
+    "swiftbase-sdk": "file:../../sdk",
+    "vue": "^3.4.15",
+    "vue-chartjs": "^5.3.0",
+    "vue-router": "^4.2.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.3",
+    "autoprefixer": "^10.4.17",
+    "daisyui": "^4.7.2",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.7.3",
+    "vite": "^5.1.0",
+    "vue-tsc": "^1.8.27"
+  }
+}

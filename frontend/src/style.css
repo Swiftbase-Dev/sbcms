@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbars and styling tweaks */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Light mode overrides inside a light preview container, even if HTML is dark */
+.dark [data-theme="light"] .dark\:bg-slate-800 {
+  background-color: #ffffff;
+}
+.dark [data-theme="light"] form.dark\:bg-slate-800\/40,
+.dark [data-theme="light"] .dark\:bg-slate-800\/40 {
+  background-color: #f8fafc; /* bg-slate-50 */
+}
+.dark [data-theme="light"] .dark\:bg-slate-900,
+.dark [data-theme="light"] .dark\:bg-slate-950 {
+  background-color: #f8fafc;
+}
+.dark [data-theme="light"] .dark\:text-white {
+  color: #0f172a; /* text-slate-900 */
+}
+.dark [data-theme="light"] .dark\:text-slate-300 {
+  color: #334155; /* text-slate-700 */
+}
+.dark [data-theme="light"] .dark\:text-slate-400 {
+  color: #64748b; /* text-slate-500 */
+}
+.dark [data-theme="light"] .dark\:border-slate-800 {
+  border-color: #e2e8f0; /* border-slate-200 */
+}

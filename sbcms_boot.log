@@ -1,0 +1,18 @@
+{"level":30,"time":1782400858445,"pid":94904,"hostname":"Mac.localdomain","msg":"Swiftbase SDK successfully logged in as Service"}
+{"level":30,"time":1782400858448,"pid":94904,"hostname":"Mac.localdomain","msg":"Initializing database cms-ben schemas..."}
+{"level":30,"time":1782400860674,"pid":94904,"hostname":"Mac.localdomain","msg":"Database and tables successfully initialized."}
+SBCMS Backend running on http://localhost:3000
+{"level":30,"time":1782400860787,"pid":94904,"hostname":"Mac.localdomain","msg":"Server listening at http://127.0.0.1:3000"}
+{"level":30,"time":1782400860788,"pid":94904,"hostname":"Mac.localdomain","msg":"Server listening at http://192.168.7.238:3000"}
+{"level":30,"time":1782401234862,"pid":94904,"hostname":"Mac.localdomain","reqId":"req-1","req":{"method":"GET","url":"/api/auth-config","host":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":50699},"msg":"incoming request"}
+{"level":30,"time":1782401234867,"pid":94904,"hostname":"Mac.localdomain","reqId":"req-1","res":{"statusCode":200},"responseTime":4.430624961853027,"msg":"request completed"}
+{"level":30,"time":1782401234892,"pid":94904,"hostname":"Mac.localdomain","reqId":"req-2","req":{"method":"GET","url":"/api/settings","host":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":50702},"msg":"incoming request"}
+{"level":30,"time":1782401234900,"pid":94904,"hostname":"Mac.localdomain","reqId":"req-3","req":{"method":"GET","url":"/api/profile","host":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":50703},"msg":"incoming request"}
+{"level":30,"time":1782401235406,"pid":94904,"hostname":"Mac.localdomain","reqId":"req-3","res":{"statusCode":200},"responseTime":506.2679581642151,"msg":"request completed"}
+{"level":30,"time":1782401235410,"pid":94904,"hostname":"Mac.localdomain","reqId":"req-4","req":{"method":"GET","url":"/api/profile","host":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":50707},"msg":"incoming request"}
+{"level":30,"time":1782401235525,"pid":94904,"hostname":"Mac.localdomain","reqId":"req-4","res":{"statusCode":200},"responseTime":114.32845783233643,"msg":"request completed"}
+{"level":30,"time":1782401235972,"pid":94904,"hostname":"Mac.localdomain","reqId":"req-2","res":{"statusCode":200},"responseTime":1079.390874862671,"msg":"request completed"}
+{"level":30,"time":1782401235976,"pid":94904,"hostname":"Mac.localdomain","reqId":"req-5","req":{"method":"GET","url":"/api/settings","host":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":50713},"msg":"incoming request"}
+{"level":30,"time":1782401236341,"pid":94904,"hostname":"Mac.localdomain","reqId":"req-5","res":{"statusCode":200},"responseTime":364.84558391571045,"msg":"request completed"}
+{"level":30,"time":1782401236347,"pid":94904,"hostname":"Mac.localdomain","reqId":"req-6","req":{"method":"GET","url":"/api/settings","host":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":50715},"msg":"incoming request"}
+{"level":30,"time":1782401236566,"pid":94904,"hostname":"Mac.localdomain","reqId":"req-6","res":{"statusCode":200},"responseTime":218.444833278656,"msg":"request completed"}
