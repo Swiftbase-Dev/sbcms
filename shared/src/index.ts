@@ -7,6 +7,9 @@ export interface CMSSettings {
   isStoreEnabled: boolean;
   stripePublishableKey?: string;
   stripeWebhookSecret?: string;
+  postmarkApiToken?: string;
+  postmarkFromEmail?: string;
+  postmarkNotifyOnOrder?: boolean;
   navbarLogo?: string;
   navbarLinks?: Array<{ label: string; url: string }>;
   footerText?: string;
@@ -90,6 +93,20 @@ export interface AffiliateLink {
   priceCents: number;
 }
 
+export interface CustomOrderField {
+  id: string;
+  label: string;
+  type: 'text' | 'textarea' | 'checkbox' | 'select';
+  required: boolean;
+  options?: string[];
+}
+
+export interface ShippingDetails {
+  weight?: string;
+  dimensions?: string;
+  notes?: string;
+}
+
 export interface CMSProduct {
   id: string;
   projectId: string;
@@ -101,19 +118,58 @@ export interface CMSProduct {
   stripeProductId?: string;
   images: string[];
   affiliateLinks: AffiliateLink[];
+  category?: string;
+  sku?: string;
+  inStock?: boolean;
+  stockQuantity?: number | null;
+  limitPerOrder?: number | null;
+  customOrderFields?: CustomOrderField[];
+  isPhysical?: boolean;
+  shippingDetails?: ShippingDetails;
+  addOnProductIds?: string[];
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface ShippingAddress {
+  name?: string;
+  line1?: string;
+  line2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+  phone?: string;
+}
+
+export interface OrderItem {
+  productId: string;
+  name: string;
+  quantity: number;
+  unitAmountCents: number;
+  images?: string[];
+  customFields?: Record<string, any>;
 }
 
 export interface CMSPurchase {
   id: string;
   projectId: string;
-  productId: string;
+  productId?: string;
   stripeSessionId: string;
   customerEmail: string;
+  customerName?: string;
   amountTotalCents: number;
   status: 'pending' | 'completed' | 'refunded';
+  fulfillmentStatus?: 'unfulfilled' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+  trackingNumber?: string;
+  carrier?: string;
+  trackingUrl?: string;
+  shippingAddress?: ShippingAddress;
+  items?: OrderItem[];
+  notes?: string;
+  shippedAt?: string;
   createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface AnalyticsEventPayload {

@@ -13,6 +13,7 @@
       <div class="flex border-b border-base-200 mb-6 gap-2">
         <button type="button" @click="activeTab = 'general'" :class="['pb-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all', activeTab === 'general' ? 'border-primary text-primary' : 'border-transparent opacity-60']">General</button>
         <button type="button" @click="activeTab = 'appearance'" :class="['pb-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all', activeTab === 'appearance' ? 'border-primary text-primary' : 'border-transparent opacity-60']">Appearance</button>
+        <button type="button" @click="activeTab = 'data'" :class="['pb-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all', activeTab === 'data' ? 'border-primary text-primary' : 'border-transparent opacity-60']">Data Management</button>
         <button type="button" @click="activeTab = 'payments'" :class="['pb-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all', activeTab === 'payments' ? 'border-primary text-primary' : 'border-transparent opacity-60']" v-if="settings.isStoreEnabled">Payments</button>
         <button type="button" @click="activeTab = 'comments'" :class="['pb-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all', activeTab === 'comments' ? 'border-primary text-primary' : 'border-transparent opacity-60']" v-if="settings.isBlogEnabled && settings.areCommentsEnabledGlobally">Comments</button>
       </div>
@@ -229,6 +230,39 @@
           </div>
         </div>
 
+        <!-- Data Management Tab -->
+        <div v-show="activeTab === 'data'" class="space-y-6">
+          <div class="space-y-4">
+            <h3 class="font-bold text-sm uppercase tracking-widest opacity-60">Backup & Migration</h3>
+            <p class="text-xs opacity-50">Export full SBCMS database configuration (settings, pages, posts, products, comments) as JSON or import backup files.</p>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="p-5 bg-slate-50 dark:bg-slate-800/40 border border-base-200 rounded-2xl flex flex-col justify-between space-y-4">
+                <div>
+                  <h4 class="font-bold text-sm">Export Data (JSON)</h4>
+                  <p class="text-xs opacity-50 mt-1">Download all site pages, blog posts, store products, comments, and settings into a JSON backup file.</p>
+                </div>
+                <button type="button" @click="exportData" :disabled="exporting" class="btn btn-primary rounded-xl font-bold text-xs uppercase tracking-wide gap-2 text-white">
+                  <span v-if="exporting" class="loading loading-spinner loading-xs"></span>
+                  Export JSON Backup
+                </button>
+              </div>
+
+              <div class="p-5 bg-slate-50 dark:bg-slate-800/40 border border-base-200 rounded-2xl flex flex-col justify-between space-y-4">
+                <div>
+                  <h4 class="font-bold text-sm">Import Data (JSON)</h4>
+                  <p class="text-xs opacity-50 mt-1">Restore or migrate settings and content from an exported SBCMS JSON backup file.</p>
+                </div>
+                <label class="btn btn-outline btn-primary rounded-xl font-bold text-xs uppercase tracking-wide cursor-pointer flex items-center justify-center gap-2">
+                  <span v-if="importing" class="loading loading-spinner loading-xs"></span>
+                  <span>{{ importing ? 'Importing...' : 'Upload & Restore JSON' }}</span>
+                  <input type="file" @change="importData" accept="application/json,.json" class="hidden" :disabled="importing" />
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Payments Tab -->
         <div v-show="activeTab === 'payments'" class="space-y-4" v-if="settings.isStoreEnabled">
           <h3 class="font-bold text-sm uppercase tracking-widest opacity-60">Payment Gateway (Stripe)</h3>
@@ -248,6 +282,30 @@
               <span v-if="syncingProducts" class="loading loading-spinner loading-xs"></span>
               Sync Local Products with Stripe
             </button>
+          </div>
+
+          <div class="divider border-base-200"></div>
+
+          <h3 class="font-bold text-sm uppercase tracking-widest opacity-60">Email Notifications (Postmark)</h3>
+          <p class="text-xs opacity-50">Send automated order confirmation and shipping notification emails with tracking numbers.</p>
+
+          <div class="form-control">
+            <label class="label font-bold text-xs uppercase text-slate-400">Postmark Server API Token</label>
+            <input type="password" v-model="settings.postmarkApiToken" placeholder="e.g. 12345678-xxxx-xxxx-xxxx-xxxxxxxxxxxx" class="input input-bordered rounded-xl w-full text-xs font-mono" />
+          </div>
+
+          <div class="form-control">
+            <label class="label font-bold text-xs uppercase text-slate-400">From / Sender Email</label>
+            <input type="email" v-model="settings.postmarkFromEmail" placeholder="e.g. orders@jennyrenson.com" class="input input-bordered rounded-xl w-full text-xs" />
+            <span class="text-[10px] opacity-40 mt-1">Must be a verified sender signature or domain in your Postmark account.</span>
+          </div>
+
+          <div class="form-control flex-row items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/40 border border-base-200 rounded-2xl mt-2">
+            <div>
+              <span class="font-bold text-xs">Notify Customer on Order Fulfillment</span>
+              <p class="text-[11px] opacity-50">Automatically email buyer carrier details and tracking links when order is fulfilled.</p>
+            </div>
+            <input type="checkbox" class="toggle toggle-primary" v-model="settings.postmarkNotifyOnOrder" />
           </div>
         </div>
 
@@ -359,7 +417,7 @@ import "prismjs/themes/prism-tomorrow.css";
 import "prismjs/components/prism-css";
 
 const route = useRoute();
-const activeTab = ref<"general" | "appearance" | "payments" | "comments">("general");
+const activeTab = ref<"general" | "appearance" | "data" | "payments" | "comments">("general");
 
 const settings = ref<CMSSettings>({
   id: "settings-default",
@@ -369,6 +427,9 @@ const settings = ref<CMSSettings>({
   isStoreEnabled: false,
   stripePublishableKey: "",
   stripeWebhookSecret: "",
+  postmarkApiToken: "",
+  postmarkFromEmail: "",
+  postmarkNotifyOnOrder: true,
   navbarLogo: "",
   navbarLinks: [],
   footerText: "",
@@ -381,13 +442,70 @@ const settings = ref<CMSSettings>({
 const saving = ref(false);
 const isLoading = ref(true);
 const syncingProducts = ref(false);
+const exporting = ref(false);
+const importing = ref(false);
+
+const exportData = async () => {
+  exporting.value = true;
+  try {
+    const res = await fetch("/api/export");
+    if (!res.ok) throw new Error("Failed to export data");
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `sbcms-export-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+    showAlert("Export Successful", "Database configuration downloaded as JSON backup!");
+  } catch (err: any) {
+    showAlert("Export Error", err.message || "Failed to export data.");
+  } finally {
+    exporting.value = false;
+  }
+};
+
+const importData = async (e: Event) => {
+  const target = e.target as HTMLInputElement;
+  const files = target.files;
+  if (!files || files.length === 0) return;
+  const file = files[0];
+  const reader = new FileReader();
+  reader.readAsText(file);
+  reader.onload = async () => {
+    try {
+      importing.value = true;
+      const payload = JSON.parse(reader.result as string);
+      const res = await fetch("/api/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showAlert("Import Successful", data.message || "Data restored successfully!");
+        await fetchSettings();
+      } else {
+        showAlert("Import Failed", data.message || "Failed to import JSON data.");
+      }
+    } catch (err: any) {
+      showAlert("Import Error", err.message || "Invalid JSON backup file.");
+    } finally {
+      importing.value = false;
+      target.value = "";
+    }
+  };
+};
 
 const syncStripeProducts = async () => {
   syncingProducts.value = true;
   try {
     const res = await fetch("/api/stripe/sync-products", {
       method: "POST",
-      headers: { "Content-Type": "application/json" }
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
     });
     const data = await res.json();
     if (res.ok) {
@@ -598,9 +716,8 @@ watch(activeTab, (newTab) => {
 const fetchSettings = async () => {
   isLoading.value = true;
   try {
-    const res = await fetch("/api/settings");
-    if (res.ok) {
-      const data = await res.json();
+    const data = await cachedFetch("/api/settings", undefined, true);
+    if (data) {
       settings.value = {
         ...settings.value,
         ...data,
@@ -620,51 +737,24 @@ const fetchSettings = async () => {
 const saveSettings = async () => {
   saving.value = true;
   try {
-    // Regenerate navbar HTML dynamically using the current links list if not customized or inside settings flow
-    if (settings.value.navbarHtml && settings.value.navbarLinks) {
-      const cleanSubdomain = (name: string) => {
-        return name.toLowerCase()
-                   .replace(/[^a-z0-9]/g, "-")
-                   .replace(/-+/g, "-")
-                   .replace(/^-|-$/g, "");
-      };
+    // Preserve custom navbarHtml and navbarComponents designed by user or custom themes.
+    // Only generate a default fallback if navbarHtml is completely empty.
+    if (!settings.value.navbarHtml && settings.value.navbarLinks && settings.value.navbarLinks.length > 0) {
       const brandText = settings.value.navbarLogo || settings.value.siteTitle || "SBCMS";
       const linksHtml = settings.value.navbarLinks.map((link: any) => `<a href="${link.url}" class="mx-4 hover:text-primary">${link.label}</a>`).join('\n            ');
-      
-      // Update custom-navbar elements inside layout components automatically
       settings.value.navbarHtml = `<header class="bg-slate-900 text-white p-4 flex justify-between items-center shadow-lg"><a href="/" class="text-xl font-black tracking-tighter">${brandText}</a><nav class="flex gap-6 font-bold text-sm">\n            ${linksHtml}\n          </nav></header>`;
-      
-      if (settings.value.navbarComponents) {
-        let rawComps = settings.value.navbarComponents;
-        if (typeof rawComps === "string") {
-          try { rawComps = JSON.parse(rawComps); } catch(e) {}
-        }
-        if (Array.isArray(rawComps) && rawComps[0] && rawComps[0].components) {
-          const navIndex = rawComps[0].components.findIndex((c: any) => c.tagName === "nav");
-          if (navIndex !== -1) {
-            rawComps[0].components[navIndex].components = settings.value.navbarLinks.map((link: any) => ({
-              tagName: "a",
-              attributes: { href: link.url },
-              classes: ["hover:text-primary"],
-              components: [{ type: "textnode", content: link.label }]
-            }));
-            settings.value.navbarComponents = rawComps;
-          }
-        }
-      }
     }
 
-    const res = await fetch("/api/settings", {
+    await cachedFetch("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings.value),
     });
-    if (res.ok) {
-      showAlert("Success", "Settings updated successfully!");
-      await fetchSettings();
-    }
+    showAlert("Success", "Settings updated successfully!");
+    await fetchSettings();
   } catch (err) {
     console.error("Failed to save settings:", err);
+    showAlert("Error", "Failed to save settings.");
   } finally {
     saving.value = false;
   }

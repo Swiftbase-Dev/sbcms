@@ -9,7 +9,7 @@ import { initializeSdk, login, db, Storage } from "swiftbase-admin-sdk";
 
 import { registerPageRoutes } from "./controllers/page.controller.js";
 import { registerBlogRoutes, rebuildBlogSite } from "./controllers/blog.controller.js";
-import { registerStoreRoutes } from "./controllers/store.controller.js";
+import { registerStoreRoutes, rebuildStoreSite } from "./controllers/store.controller.js";
 import { registerAnalyticsRoutes } from "./controllers/analytics.controller.js";
 import { registerAIRoutes } from "./controllers/ai.controller.js";
 import { registerAssetRoutes } from "./controllers/assets.controller.js";
@@ -18,18 +18,19 @@ import { registerCommentRoutes } from "./controllers/comments.controller.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const app = Fastify({ logger: true });
+const app = Fastify({ logger: true, bodyLimit: 52428800 });
 
 async function start() {
   // 1. Initialize Swiftbase Admin SDK
-  const projectId = process.env.SWIFTBASE_PROJECT_ID;
+  const cleanEnvVar = (val?: string) => (val || "").replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1").trim();
+  const projectId = cleanEnvVar(process.env.SWIFTBASE_PROJECT_ID);
   if (!projectId) {
     console.error("CRITICAL CONFIGURATION ERROR: SWIFTBASE_PROJECT_ID environment variable is required to start SBCMS.");
     process.exit(1);
   }
-  const baseUrl = process.env.SWIFTBASE_BASE_URL || "https://api.swiftbase.io";
-  const serviceId = process.env.SWIFTBASE_SERVICE_ID;
-  const serviceKey = process.env.SWIFTBASE_SERVICE_KEY;
+  const baseUrl = cleanEnvVar(process.env.SWIFTBASE_BASE_URL) || "https://api.swiftbase.io";
+  const serviceId = cleanEnvVar(process.env.SWIFTBASE_SERVICE_ID);
+  const serviceKey = cleanEnvVar(process.env.SWIFTBASE_SERVICE_KEY);
 
   if (serviceId && serviceKey) {
     initializeSdk(projectId, {
@@ -43,7 +44,7 @@ async function start() {
       app.log.info("Swiftbase SDK successfully logged in as Service");
 
       // Auto-initialize databases and tables
-      const dbName = process.env.SWIFTBASE_DATABASE_NAME || "cms";
+      const dbName = cleanEnvVar(process.env.SWIFTBASE_DATABASE_NAME) || "cms";
       const schemaName = dbName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
       app.log.info(`Initializing database ${dbName} schemas...`);
 
@@ -51,7 +52,7 @@ async function start() {
         {
           dbname: 'cms_settings',
           name: 'CMS Settings',
-          ddl: `CREATE TABLE IF NOT EXISTS "${schemaName}"."cms_settings" (
+          ddl: `CREATE TABLE IF NOT EXISTS "cms_settings" (
             "id" VARCHAR(255) PRIMARY KEY,
             "projectId" VARCHAR(255),
             "siteTitle" VARCHAR(255),
@@ -60,6 +61,9 @@ async function start() {
             "isStoreEnabled" BOOLEAN DEFAULT false,
             "stripePublishableKey" VARCHAR(255),
             "stripeWebhookSecret" VARCHAR(255),
+            "postmarkApiToken" VARCHAR(255),
+            "postmarkFromEmail" VARCHAR(255),
+            "postmarkNotifyOnOrder" BOOLEAN DEFAULT true,
             "navbarLogo" VARCHAR(255),
             "navbarLinks" JSONB,
             "footerText" VARCHAR(255),
@@ -74,6 +78,7 @@ async function start() {
             "footerCss" TEXT,
             "footerComponents" JSONB,
             "footerStyles" JSONB,
+            "areCommentsEnabledGlobally" BOOLEAN DEFAULT true,
             "createdAt" VARCHAR(255),
             "updatedAt" VARCHAR(255)
           )`
@@ -81,7 +86,7 @@ async function start() {
         {
           dbname: 'cms_pages',
           name: 'CMS Pages',
-          ddl: `CREATE TABLE IF NOT EXISTS "${schemaName}"."cms_pages" (
+          ddl: `CREATE TABLE IF NOT EXISTS "cms_pages" (
             "id" VARCHAR(255) PRIMARY KEY,
             "projectId" VARCHAR(255),
             "slug" VARCHAR(255),
@@ -100,7 +105,7 @@ async function start() {
         {
           dbname: 'cms_posts',
           name: 'CMS Posts',
-          ddl: `CREATE TABLE IF NOT EXISTS "${schemaName}"."cms_posts" (
+          ddl: `CREATE TABLE IF NOT EXISTS "cms_posts" (
             "id" VARCHAR(255) PRIMARY KEY,
             "projectId" VARCHAR(255),
             "slug" VARCHAR(255),
@@ -112,15 +117,8 @@ async function start() {
             "status" VARCHAR(50),
             "seoMetadata" JSONB,
             "hasUnpublishedChanges" BOOLEAN DEFAULT false,
-            "publishedTitle" VARCHAR(255),
-            "publishedContent" TEXT,
-            "publishedExcerpt" TEXT,
-            "publishedTags" TEXT,
-            "publishedFeatureImage" TEXT,
-            "publishedSeoMetadata" JSONB,
+            "isPublished" BOOLEAN DEFAULT false,
             "publishedAt" VARCHAR(255),
-            "author" VARCHAR(255),
-            "publishedAuthor" VARCHAR(255),
             "createdAt" VARCHAR(255),
             "updatedAt" VARCHAR(255)
           )`
@@ -128,17 +126,29 @@ async function start() {
         {
           dbname: 'cms_products',
           name: 'CMS Products',
-          ddl: `CREATE TABLE IF NOT EXISTS "${schemaName}"."cms_products" (
+          ddl: `CREATE TABLE IF NOT EXISTS "cms_products" (
             "id" VARCHAR(255) PRIMARY KEY,
             "projectId" VARCHAR(255),
             "slug" VARCHAR(255),
             "name" VARCHAR(255),
             "description" TEXT,
             "priceCents" INTEGER,
+            "currency" VARCHAR(10) DEFAULT 'usd',
+            "fileUrl" VARCHAR(255),
+            "imageUrl" VARCHAR(255),
             "stripePriceId" VARCHAR(255),
             "stripeProductId" VARCHAR(255),
             "images" JSONB,
             "affiliateLinks" JSONB,
+            "category" VARCHAR(255),
+            "sku" VARCHAR(255),
+            "inStock" BOOLEAN DEFAULT true,
+            "stockQuantity" INTEGER,
+            "limitPerOrder" INTEGER,
+            "customOrderFields" JSONB,
+            "isPhysical" BOOLEAN DEFAULT true,
+            "shippingDetails" JSONB,
+            "addOnProductIds" JSONB,
             "createdAt" VARCHAR(255),
             "updatedAt" VARCHAR(255)
           )`
@@ -146,14 +156,23 @@ async function start() {
         {
           dbname: 'cms_purchases',
           name: 'CMS Purchases',
-          ddl: `CREATE TABLE IF NOT EXISTS "${schemaName}"."cms_purchases" (
+          ddl: `CREATE TABLE IF NOT EXISTS "cms_purchases" (
             "id" VARCHAR(255) PRIMARY KEY,
             "projectId" VARCHAR(255),
             "productId" VARCHAR(255),
             "stripeSessionId" VARCHAR(255),
             "customerEmail" VARCHAR(255),
+            "customerName" VARCHAR(255),
             "amountTotalCents" INTEGER,
             "status" VARCHAR(50),
+            "fulfillmentStatus" VARCHAR(50) DEFAULT 'unfulfilled',
+            "trackingNumber" VARCHAR(255),
+            "carrier" VARCHAR(100),
+            "trackingUrl" TEXT,
+            "shippingAddress" JSONB,
+            "items" JSONB,
+            "notes" TEXT,
+            "shippedAt" VARCHAR(255),
             "createdAt" VARCHAR(255),
             "updatedAt" VARCHAR(255)
           )`
@@ -161,7 +180,7 @@ async function start() {
         {
           dbname: 'cms_analytics_events',
           name: 'CMS Analytics Events',
-          ddl: `CREATE TABLE IF NOT EXISTS "${schemaName}"."cms_analytics_events" (
+          ddl: `CREATE TABLE IF NOT EXISTS "cms_analytics_events" (
             "id" VARCHAR(255) PRIMARY KEY,
             "projectId" VARCHAR(255),
             "path" VARCHAR(255),
@@ -178,7 +197,7 @@ async function start() {
         {
           dbname: 'cms_comments',
           name: 'CMS Comments',
-          ddl: `CREATE TABLE IF NOT EXISTS "${schemaName}"."cms_comments" (
+          ddl: `CREATE TABLE IF NOT EXISTS "cms_comments" (
             "id" VARCHAR(255) PRIMARY KEY,
             "projectId" VARCHAR(255),
             "postSlug" VARCHAR(255),
@@ -196,49 +215,71 @@ async function start() {
 
       const database = db(dbName);
       if (typeof (database as any).initializeDatabase === "function") {
-        await (database as any).initializeDatabase(tables);
+        let retries = 3;
+        while (retries > 0) {
+          try {
+            await (database as any).initializeDatabase(tables);
+            break;
+          } catch (initErr: any) {
+            retries--;
+            if (retries === 0) throw initErr;
+            app.log.warn(`Database initialization failed (${initErr.message}). Retrying in 5 seconds... (${retries} retries left)`);
+            await new Promise(resolve => setTimeout(resolve, 5000));
+          }
+        }
         
         // Ensure siteDomain and appearance columns are present in pre-existing tables
         try {
           if (typeof (database as any).executeSQL === "function") {
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "siteDomain" VARCHAR(255)`);
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "navbarLogo" VARCHAR(255)`);
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "navbarLinks" JSONB`);
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "footerText" VARCHAR(255)`);
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "footerLinks" JSONB`);
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "faviconUrl" VARCHAR(255)`);
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "globalStyles" TEXT`);
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "navbarHtml" TEXT`);
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "navbarCss" TEXT`);
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "navbarComponents" JSONB`);
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "navbarStyles" JSONB`);
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "footerHtml" TEXT`);
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "footerCss" TEXT`);
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "footerComponents" JSONB`);
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "footerStyles" JSONB`);
-            await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_settings" ADD COLUMN IF NOT EXISTS "areCommentsEnabledGlobally" BOOLEAN DEFAULT true`);
-            app.log.info("Migrated cms_settings to include siteDomain, appearance, global layout, and comments columns.");
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "siteDomain" VARCHAR(255)`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "navbarLogo" VARCHAR(255)`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "navbarLinks" JSONB`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "footerText" VARCHAR(255)`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "footerLinks" JSONB`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "faviconUrl" VARCHAR(255)`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "globalStyles" TEXT`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "navbarHtml" TEXT`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "navbarCss" TEXT`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "navbarComponents" JSONB`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "navbarStyles" JSONB`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "footerHtml" TEXT`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "footerCss" TEXT`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "footerComponents" JSONB`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "footerStyles" JSONB`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "areCommentsEnabledGlobally" BOOLEAN DEFAULT true`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "postmarkApiToken" VARCHAR(255)`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "postmarkFromEmail" VARCHAR(255)`);
+            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "postmarkNotifyOnOrder" BOOLEAN DEFAULT true`);
+            app.log.info("Migrated cms_settings to include siteDomain, appearance, global layout, comments, and Postmark columns.");
             
             // Migrate cms_analytics_events fields if table already existed without new parameters
             try {
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_analytics_events" ADD COLUMN IF NOT EXISTS "countryCode" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_analytics_events" ADD COLUMN IF NOT EXISTS "conversionName" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_analytics_events" ADD COLUMN IF NOT EXISTS "timestamp" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_analytics_events" ADD COLUMN IF NOT EXISTS "countryCode" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_analytics_events" ADD COLUMN IF NOT EXISTS "conversionName" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_analytics_events" ADD COLUMN IF NOT EXISTS "timestamp" VARCHAR(255)`);
               app.log.info("Migrated cms_analytics_events schema to include countryCode, conversionName, and timestamp columns.");
             } catch (aErr: any) {
               app.log.warn(`Analytics table migration warning: ${aErr.message}`);
             }
 
-            // Rename/add columns to support replacement of GrapesJS
+            // Rename/add columns to support replacement of GrapesJS & ensure full schema
             try {
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_pages" ADD COLUMN IF NOT EXISTS "layoutHtml" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_pages" ADD COLUMN IF NOT EXISTS "layoutCss" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_pages" ADD COLUMN IF NOT EXISTS "layoutComponents" JSONB`);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_pages" ADD COLUMN IF NOT EXISTS "layoutStyles" JSONB`);
-              
+              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "projectId" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "slug" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "title" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "layoutHtml" TEXT`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "layoutCss" TEXT`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "layoutComponents" JSONB`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "layoutStyles" JSONB`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "seoMetadata" JSONB`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "isPublished" BOOLEAN DEFAULT false`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "hasUnpublishedChanges" BOOLEAN DEFAULT false`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "createdAt" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "updatedAt" VARCHAR(255)`);
+
               // Migrate existing legacy data securely if present
               await (database as any).executeSQL(`
-                UPDATE "${schemaName}"."cms_pages"
+                UPDATE "cms_pages"
                 SET 
                   "layoutHtml" = COALESCE("layoutHtml", "grapesHtml"),
                   "layoutCss" = COALESCE("layoutCss", "grapesCss"),
@@ -246,27 +287,69 @@ async function start() {
                   "layoutStyles" = COALESCE("layoutStyles", "grapesStyles")
                 WHERE "layoutHtml" IS NULL AND "grapesHtml" IS NOT NULL
               `);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_pages" ADD COLUMN IF NOT EXISTS "hasUnpublishedChanges" BOOLEAN DEFAULT false`);
               app.log.info("Migrated cms_pages to include custom layout and components columns.");
             } catch (pErr: any) {
               app.log.warn(`Pages table column migration warning: ${pErr.message}`);
             }
             // Migrate cms_posts to include tags TEXT column if table already existed
             try {
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_posts" ADD COLUMN IF NOT EXISTS "tags" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_posts" ADD COLUMN IF NOT EXISTS "hasUnpublishedChanges" BOOLEAN DEFAULT false`);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_posts" ADD COLUMN IF NOT EXISTS "publishedTitle" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_posts" ADD COLUMN IF NOT EXISTS "publishedContent" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_posts" ADD COLUMN IF NOT EXISTS "publishedExcerpt" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_posts" ADD COLUMN IF NOT EXISTS "publishedTags" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_posts" ADD COLUMN IF NOT EXISTS "publishedFeatureImage" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_posts" ADD COLUMN IF NOT EXISTS "publishedSeoMetadata" JSONB`);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_posts" ADD COLUMN IF NOT EXISTS "areCommentsEnabled" BOOLEAN DEFAULT true`);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_posts" ADD COLUMN IF NOT EXISTS "author" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "${schemaName}"."cms_posts" ADD COLUMN IF NOT EXISTS "publishedAuthor" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "tags" TEXT`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "hasUnpublishedChanges" BOOLEAN DEFAULT false`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "publishedTitle" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "publishedContent" TEXT`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "publishedExcerpt" TEXT`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "publishedTags" TEXT`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "publishedFeatureImage" TEXT`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "publishedSeoMetadata" JSONB`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "areCommentsEnabled" BOOLEAN DEFAULT true`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "author" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "publishedAuthor" VARCHAR(255)`);
               app.log.info("Migrated cms_posts schema to include tags, draft/published copy, comments, and author columns.");
             } catch (postErr: any) {
               app.log.warn(`Posts table column migration warning: ${postErr.message}`);
+            }
+
+            // Migrate cms_products columns if table already existed
+            try {
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "projectId" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "slug" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "name" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "description" TEXT`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "priceCents" INTEGER`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "stripePriceId" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "stripeProductId" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "images" JSONB`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "affiliateLinks" JSONB`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "category" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "sku" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "inStock" BOOLEAN DEFAULT true`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "stockQuantity" INTEGER`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "limitPerOrder" INTEGER`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "customOrderFields" JSONB`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "isPhysical" BOOLEAN DEFAULT true`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "shippingDetails" JSONB`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "addOnProductIds" JSONB`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "createdAt" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "updatedAt" VARCHAR(255)`);
+              app.log.info("Migrated cms_products schema to include extended product catalog fields.");
+            } catch (prodErr: any) {
+              app.log.warn(`Products table column migration warning: ${prodErr.message}`);
+            }
+
+            // Migrate cms_purchases columns for order fulfillment and tracking
+            try {
+              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "customerName" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "fulfillmentStatus" VARCHAR(50) DEFAULT 'unfulfilled'`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "trackingNumber" VARCHAR(255)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "carrier" VARCHAR(100)`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "trackingUrl" TEXT`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "shippingAddress" JSONB`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "items" JSONB`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "notes" TEXT`);
+              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "shippedAt" VARCHAR(255)`);
+              app.log.info("Migrated cms_purchases schema to include shipping address, tracking, and order items.");
+            } catch (purchErr: any) {
+              app.log.warn(`Purchases table column migration warning: ${purchErr.message}`);
             }
           }
         } catch (mErr: any) {
@@ -297,6 +380,19 @@ async function start() {
   await app.register(cookie, { secret: process.env.COOKIE_SECRET || "cms-cookie-secret" });
   await app.register(formbody);
 
+  // Allow empty or blank JSON bodies gracefully without failing with FST_ERR_CTP_EMPTY_JSON_BODY
+  app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body: string, defaultDone) => {
+    if (!body || body.trim() === "") {
+      defaultDone(null, {});
+      return;
+    }
+    try {
+      defaultDone(null, JSON.parse(body));
+    } catch (err: any) {
+      defaultDone(err, undefined);
+    }
+  });
+
   // 3. Register Static Frontend Admin portal
   const frontendDist = path.join(__dirname, "../../frontend/dist");
   await app.register(fastifyStatic, {
@@ -324,7 +420,8 @@ async function start() {
       }
       
       // Fetch the compiled page directly from the storage bucket!
-      const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET || "cms-site-assets" });
+      const endpoint = `${(process.env.SWIFTBASE_URL || process.env.SWIFTBASE_API_URL || "https://api.swiftbase.io").replace(/\/$/, "")}/storage`;
+      const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET!, endpoint });
       const targetKey = slug === "home" ? "index.html" : `${slug}/index.html`;
       
       try {
@@ -409,11 +506,23 @@ async function start() {
   app.get("/assets/:key", async (request: any, reply) => {
     try {
       const { key } = request.params;
-      const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET || "cms-site-assets" });
+      const endpoint = `${(process.env.SWIFTBASE_URL || process.env.SWIFTBASE_API_URL || "https://api.swiftbase.io").replace(/\/$/, "")}/storage`;
+      const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET!, endpoint });
       const s3Res = await storage.getObject(`assets/${key}`);
       
-      const contentType = s3Res.headers.get("Content-Type") || "application/octet-stream";
-      reply.header("Content-Type", contentType);
+      let contentType = "";
+      if (key.endsWith(".jpg") || key.endsWith(".jpeg")) contentType = "image/jpeg";
+      else if (key.endsWith(".png")) contentType = "image/png";
+      else if (key.endsWith(".svg")) contentType = "image/svg+xml";
+      else if (key.endsWith(".gif")) contentType = "image/gif";
+      else if (key.endsWith(".webp")) contentType = "image/webp";
+      else if (key.endsWith(".ico")) contentType = "image/x-icon";
+      else contentType = s3Res.headers.get("Content-Type") || "application/octet-stream";
+
+      reply.raw.setHeader("Content-Type", contentType);
+      reply.raw.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      reply.raw.setHeader("Pragma", "no-cache");
+      reply.raw.setHeader("Expires", "0");
       
       const buffer = await s3Res.arrayBuffer();
       return reply.send(Buffer.from(buffer));
@@ -433,7 +542,7 @@ async function start() {
         return reply.code(404).send("Blog module is disabled");
       }
 
-      const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET || "cms-site-assets" });
+      const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET! });
       let indexHtml: string;
       try {
         indexHtml = await storage.getObjectAsText("blog/index.html");
@@ -461,7 +570,7 @@ async function start() {
         return reply.code(404).send("Blog module is disabled");
       }
 
-      const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET || "cms-site-assets" });
+      const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET! });
       const postHtml = await storage.getObjectAsText(`blog/${postSlug}/index.html`);
       reply.header("Content-Type", "text/html");
       return reply.send(postHtml);
@@ -470,9 +579,64 @@ async function start() {
     }
   });
 
+  // Public store routes
+  app.get("/store", async (request, reply) => {
+    try {
+      const dbName = process.env.SWIFTBASE_DATABASE_NAME || "cms";
+      const database = db(dbName);
+      const res = await database("cms_settings").execute();
+      const rawSettings = res.data[0];
+      if (!rawSettings || !rawSettings.isStoreEnabled) {
+        return reply.code(404).send("Store module is disabled");
+      }
+
+      const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET! });
+      let indexHtml: string;
+      try {
+        indexHtml = await storage.getObjectAsText("store/index.html");
+      } catch (err) {
+        request.log.info("Store index not found in storage, rebuilding...");
+        await rebuildStoreSite();
+        indexHtml = await storage.getObjectAsText("store/index.html");
+      }
+      
+      reply.header("Content-Type", "text/html");
+      return reply.send(indexHtml);
+    } catch (err: any) {
+      return reply.code(404).send("Store index not found in storage");
+    }
+  });
+
+  app.get("/store/:productSlug", async (request: any, reply) => {
+    try {
+      const { productSlug } = request.params;
+      const dbName = process.env.SWIFTBASE_DATABASE_NAME || "cms";
+      const database = db(dbName);
+      const res = await database("cms_settings").execute();
+      const rawSettings = res.data[0];
+      if (!rawSettings || !rawSettings.isStoreEnabled) {
+        return reply.code(404).send("Store module is disabled");
+      }
+
+      const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET! });
+      const productHtml = await storage.getObjectAsText(`store/${productSlug}/index.html`);
+      reply.header("Content-Type", "text/html");
+      return reply.send(productHtml);
+    } catch (err) {
+      return reply.code(404).send("Product not found in storage");
+    }
+  });
+
+  app.get("/admin", async (request, reply) => {
+    return reply.redirect("/admin/");
+  });
+
   app.get("/:slug", async (request: any, reply) => {
     const { slug } = request.params;
-    if (slug === "api" || slug === "admin" || slug === "blog") {
+    if (slug === "admin") {
+      return reply.redirect("/admin/");
+    }
+    if (slug === "api" || slug === "blog" || slug === "store") {
       return reply.code(404).send({ error: "Not Found" });
     }
     return servePage(request, reply, slug);
@@ -499,7 +663,7 @@ async function start() {
     registerAssetRoutes(api);
     registerSearchRoutes(api);
     registerCommentRoutes(api);
-  }, { prefix: "/api" });
+  }, { prefix: "/api", bodyLimit: 52428800 });
 
   // 5. Start Listening
   const port = parseInt(process.env.PORT || "3000", 10);

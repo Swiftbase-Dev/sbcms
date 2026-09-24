@@ -1,8 +1,9 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { db, Storage } from "swiftbase-admin-sdk";
-import type { CMSProduct, CMSSettings, CMSPurchase, AffiliateLink } from "swiftbase-cms-shared";
+import type { CMSProduct, CMSSettings, CMSPurchase, AffiliateLink, ShippingAddress, OrderItem } from "swiftbase-cms-shared";
 import Stripe from "stripe";
 import { getCartDrawerAndScriptHtml } from "./cart.helper.js";
+import { sendPostmarkEmail, formatShippingNotificationEmail, formatOrderConfirmationEmail } from "./email.helper.js";
 
 const database = db(process.env.SWIFTBASE_DATABASE_NAME || "cms");
 
@@ -46,6 +47,15 @@ function normalizeProduct(p: any): CMSProduct {
     customOrderFields: parseJSONField(p.customOrderFields, []),
     shippingDetails: parseJSONField(p.shippingDetails, {}),
     addOnProductIds: parseJSONField<string[]>(p.addOnProductIds, []),
+  };
+}
+
+function normalizePurchase(p: any): CMSPurchase {
+  return {
+    ...p,
+    amountTotalCents: Number(p.amountTotalCents) || 0,
+    shippingAddress: parseJSONField(p.shippingAddress, undefined),
+    items: parseJSONField(p.items, []),
   };
 }
 
@@ -608,7 +618,13 @@ export function registerStoreRoutes(app: FastifyInstance) {
         ? `${origin}/store/${firstProduct.slug}`
         : `${origin}/store`;
 
-      const session = await stripe.checkout.sessions.create({
+      // Check if any product in this checkout requires physical shipping
+      const requiresShipping = checkoutItems.some(item => {
+        const prod = productsMap.get(item.productId);
+        return prod && prod.isPhysical !== false;
+      });
+
+      const sessionParams: Stripe.Checkout.SessionCreateParams = {
         payment_method_types: ["card"],
         line_items: lineItems,
         mode: "payment",
@@ -618,7 +634,21 @@ export function registerStoreRoutes(app: FastifyInstance) {
           productIds: JSON.stringify(checkoutItems.map(i => ({ id: i.productId, qty: i.quantity }))),
           productId: checkoutItems[0].productId,
         },
-      });
+      };
+
+      if (requiresShipping) {
+        // Collect shipping address natively on Stripe Checkout
+        sessionParams.shipping_address_collection = {
+          allowed_countries: [
+            "US", "CA", "GB", "AU", "NZ", "DE", "FR", "IT", "ES", "NL", "IE", "SE", "NO", "DK", "CH", "AT", "BE"
+          ],
+        };
+        sessionParams.phone_number_collection = {
+          enabled: true,
+        };
+      }
+
+      const session = await stripe.checkout.sessions.create(sessionParams);
 
       return reply.send({ url: session.url });
     } catch (err: any) {
@@ -633,24 +663,238 @@ export function registerStoreRoutes(app: FastifyInstance) {
       const stripe = await getStripe();
 
       if (stripe && payload.type === "checkout.session.completed") {
-        const session = payload.data.object;
-        const productId = session.metadata.productId;
+        const session = payload.data.object as Stripe.Checkout.Session;
+        const productId = session.metadata?.productId || "";
         const amountTotal = session.amount_total;
 
-        const purchase: CMSPurchase = {
+        // Parse line items or metadata items
+        let items: OrderItem[] = [];
+        try {
+          if (session.metadata?.productIds) {
+            const parsedMeta = JSON.parse(session.metadata.productIds);
+            const pIds = new Set(parsedMeta.map((m: any) => m.id));
+            const productsRes = await database("cms_products").execute();
+            const prodMap = new Map<string, any>(
+              (productsRes.data || []).filter((p: any) => pIds.has(p.id)).map((p: any) => [p.id, normalizeProduct(p)])
+            );
+            items = parsedMeta.map((m: any) => {
+              const p = prodMap.get(m.id);
+              return {
+                productId: m.id,
+                name: p?.name || "Product",
+                quantity: Number(m.qty) || 1,
+                unitAmountCents: p?.priceCents || 0,
+                images: p?.images,
+              };
+            });
+          }
+        } catch (itemErr: any) {
+          app.log.warn(`Error resolving items for purchase: ${itemErr.message}`);
+        }
+
+        // Extract customer & shipping details
+        const customerEmail = session.customer_details?.email || "anonymous@example.com";
+        const customerName = session.customer_details?.name || session.shipping_details?.name || "";
+
+        let shippingAddress: ShippingAddress | undefined = undefined;
+        if (session.shipping_details?.address) {
+          const addr = session.shipping_details.address;
+          shippingAddress = {
+            name: session.shipping_details.name || customerName,
+            line1: addr.line1 || "",
+            line2: addr.line2 || "",
+            city: addr.city || "",
+            state: addr.state || "",
+            postalCode: addr.postal_code || "",
+            country: addr.country || "",
+            phone: session.customer_details?.phone || undefined,
+          };
+        }
+
+        const purchase: any = {
           id: `purch-${Date.now()}`,
-          projectId: "swiftbase",
+          projectId: process.env.SWIFTBASE_PROJECT_ID || "author-sites",
           productId,
           stripeSessionId: session.id,
-          customerEmail: session.customer_details?.email || "anonymous@example.com",
+          customerEmail,
+          customerName,
           amountTotalCents: amountTotal || 0,
           status: "completed",
+          fulfillmentStatus: "unfulfilled",
+          trackingNumber: null,
+          carrier: null,
+          trackingUrl: null,
+          shippingAddress: shippingAddress ? JSON.stringify(shippingAddress) : null,
+          items: JSON.stringify(items),
+          notes: "",
+          shippedAt: null,
           createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         };
 
         await database("cms_purchases").insert(purchase).execute();
+
+        // Check if Postmark confirmation email should be sent
+        try {
+          const settingsRes = await database("cms_settings").execute();
+          const settings = settingsRes.data[0];
+          if (settings?.postmarkApiToken && settings?.postmarkFromEmail && customerEmail) {
+            const emailContent = formatOrderConfirmationEmail({
+              siteTitle: settings.siteTitle || "Store",
+              customerName,
+              orderId: purchase.id,
+              amountTotalCents: amountTotal || 0,
+              items,
+              shippingAddress,
+            });
+
+            await sendPostmarkEmail({
+              apiToken: settings.postmarkApiToken,
+              from: settings.postmarkFromEmail,
+              to: customerEmail,
+              subject: emailContent.subject,
+              htmlBody: emailContent.htmlBody,
+            });
+            app.log.info(`Order confirmation email sent via Postmark for purchase ${purchase.id}`);
+          }
+        } catch (emailErr: any) {
+          app.log.warn(`Failed to send order confirmation email: ${emailErr.message}`);
+        }
       }
       return reply.send({ received: true });
+    } catch (err: any) {
+      return reply.status(500).send({ message: err.message });
+    }
+  });
+
+  // Orders Management Routes
+  app.get("/orders", async (request, reply) => {
+    try {
+      const res = await database("cms_purchases").execute();
+      const list = (res.data || [])
+        .map(normalizePurchase)
+        .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      return reply.send(list);
+    } catch (err: any) {
+      return reply.status(500).send({ message: err.message });
+    }
+  });
+
+  app.get("/orders/:id", async (request: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    try {
+      const { id } = request.params;
+      const res = await database("cms_purchases").where("id", id).execute();
+      const order = res.data[0];
+      if (!order) return reply.status(404).send({ message: "Order not found" });
+      return reply.send(normalizePurchase(order));
+    } catch (err: any) {
+      return reply.status(500).send({ message: err.message });
+    }
+  });
+
+  app.put("/orders/:id/fulfill", async (request: FastifyRequest<{
+    Params: { id: string };
+    Body: {
+      trackingNumber?: string;
+      carrier?: string;
+      trackingUrl?: string;
+      fulfillmentStatus?: string;
+      notes?: string;
+      sendEmail?: boolean;
+    };
+  }>, reply) => {
+    try {
+      const { id } = request.params;
+      const { trackingNumber, carrier, trackingUrl, fulfillmentStatus, notes, sendEmail } = request.body;
+
+      const res = await database("cms_purchases").where("id", id).execute();
+      const existing = res.data[0];
+      if (!existing) return reply.status(404).send({ message: "Order not found" });
+
+      const newStatus = fulfillmentStatus || (trackingNumber ? "shipped" : existing.fulfillmentStatus || "unfulfilled");
+      const shippedAt = newStatus === "shipped" && !existing.shippedAt ? new Date().toISOString() : existing.shippedAt;
+
+      // Auto-generate standard tracking URLs if not explicitly provided
+      let finalTrackingUrl = trackingUrl || existing.trackingUrl;
+      const cleanTracking = (trackingNumber || existing.trackingNumber || "").trim();
+      const cleanCarrier = (carrier || existing.carrier || "USPS").toUpperCase();
+
+      if (!finalTrackingUrl && cleanTracking) {
+        if (cleanCarrier.includes("USPS")) {
+          finalTrackingUrl = `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(cleanTracking)}`;
+        } else if (cleanCarrier.includes("UPS")) {
+          finalTrackingUrl = `https://www.ups.com/track?tracknum=${encodeURIComponent(cleanTracking)}`;
+        } else if (cleanCarrier.includes("FEDEX")) {
+          finalTrackingUrl = `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(cleanTracking)}`;
+        } else if (cleanCarrier.includes("DHL")) {
+          finalTrackingUrl = `https://www.dhl.com/en/express/tracking.html?AWB=${encodeURIComponent(cleanTracking)}`;
+        }
+      }
+
+      const updatedOrder: any = {
+        ...existing,
+        fulfillmentStatus: newStatus,
+        trackingNumber: cleanTracking || existing.trackingNumber,
+        carrier: carrier || existing.carrier,
+        trackingUrl: finalTrackingUrl,
+        notes: notes !== undefined ? notes : existing.notes,
+        shippedAt,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await database("cms_purchases").where("id", id).update(updatedOrder).execute();
+
+      // Trigger Postmark Shipping Email if requested
+      const normalized = normalizePurchase(updatedOrder);
+      let emailSent = false;
+      let emailError = "";
+
+      if (sendEmail !== false && newStatus === "shipped" && cleanTracking && normalized.customerEmail) {
+        try {
+          const settingsRes = await database("cms_settings").execute();
+          const settings = settingsRes.data[0];
+          if (settings?.postmarkApiToken && settings?.postmarkFromEmail) {
+            const emailContent = formatShippingNotificationEmail({
+              siteTitle: settings.siteTitle || "Store",
+              customerName: normalized.customerName,
+              orderId: normalized.id,
+              carrier: normalized.carrier || "Carrier",
+              trackingNumber: cleanTracking,
+              trackingUrl: finalTrackingUrl,
+              items: normalized.items,
+              shippingAddress: normalized.shippingAddress,
+            });
+
+            const emailResult = await sendPostmarkEmail({
+              apiToken: settings.postmarkApiToken,
+              from: settings.postmarkFromEmail,
+              to: normalized.customerEmail,
+              subject: emailContent.subject,
+              htmlBody: emailContent.htmlBody,
+            });
+
+            if (emailResult.success) {
+              emailSent = true;
+              app.log.info(`Shipping notification email sent to ${normalized.customerEmail} for order ${id}`);
+            } else {
+              emailError = emailResult.error || "Postmark error";
+              app.log.warn(`Postmark send failed for order ${id}: ${emailError}`);
+            }
+          } else {
+            emailError = "Postmark API Token or From Email not configured in Settings > Payments.";
+          }
+        } catch (mailErr: any) {
+          emailError = mailErr.message;
+          app.log.warn(`Shipping email trigger error: ${mailErr.message}`);
+        }
+      }
+
+      return reply.send({
+        success: true,
+        order: normalized,
+        emailSent,
+        emailError: emailError || undefined,
+      });
     } catch (err: any) {
       return reply.status(500).send({ message: err.message });
     }
