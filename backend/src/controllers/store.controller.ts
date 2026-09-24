@@ -2,14 +2,116 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { db, Storage } from "swiftbase-admin-sdk";
 import type { CMSProduct, CMSSettings, CMSPurchase, AffiliateLink } from "swiftbase-cms-shared";
 import Stripe from "stripe";
+import { getCartDrawerAndScriptHtml } from "./cart.helper.js";
 
 const database = db(process.env.SWIFTBASE_DATABASE_NAME || "cms");
 
-async function rebuildStoreSite() {
-  const productsRes = await database("cms_products").execute();
-  const products = productsRes.data;
+function parseJSONField<T>(field: any, defaultValue: T): T {
+  if (field === null || field === undefined) return defaultValue;
+  if (typeof field === "object") return field as T;
+  try {
+    return JSON.parse(field);
+  } catch {
+    return defaultValue;
+  }
+}
 
-  const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET || "cms-site-assets" });
+export function cleanDescriptionForStripe(html?: string): string | undefined {
+  if (!html) return undefined;
+  const text = html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\n\s*\n\s*\n+/g, '\n\n')
+    .trim();
+  return text.substring(0, 500) || undefined;
+}
+
+function normalizeProduct(p: any): CMSProduct {
+  return {
+    ...p,
+    priceCents: Number(p.priceCents) || 0,
+    inStock: p.inStock === 1 || p.inStock === true || p.inStock === "1" || p.inStock === "true",
+    isPhysical: p.isPhysical === 1 || p.isPhysical === true || p.isPhysical === "1" || p.isPhysical === "true",
+    stockQuantity: p.stockQuantity !== null && p.stockQuantity !== undefined ? Number(p.stockQuantity) : null,
+    limitPerOrder: p.limitPerOrder !== null && p.limitPerOrder !== undefined ? Number(p.limitPerOrder) : null,
+    images: parseJSONField<string[]>(p.images, []),
+    affiliateLinks: parseJSONField<AffiliateLink[]>(p.affiliateLinks, []),
+    customOrderFields: parseJSONField(p.customOrderFields, []),
+    shippingDetails: parseJSONField(p.shippingDetails, {}),
+    addOnProductIds: parseJSONField<string[]>(p.addOnProductIds, []),
+  };
+}
+
+export async function rebuildStoreSite() {
+  const productsRes = await database("cms_products").execute();
+  const rawProducts = productsRes.data || [];
+  const products: CMSProduct[] = rawProducts.map(normalizeProduct);
+
+  const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET! });
+
+  // Fetch settings to check navbar, footer, favicon, styles
+  let settings: any = { isBlogEnabled: false, isStoreEnabled: true, siteTitle: "SBCMS" };
+  try {
+    const settingsRes = await database("cms_settings").execute();
+    const rawSettings = settingsRes.data[0];
+    if (rawSettings) {
+      settings = {
+        ...rawSettings,
+        siteTitle: rawSettings.siteTitle || rawSettings.sitetitle,
+        siteDomain: rawSettings.siteDomain || rawSettings.sitedomain,
+        navbarLogo: rawSettings.navbarLogo || rawSettings.navbarlogo,
+        navbarLinks: typeof rawSettings.navbarLinks === "string" ? JSON.parse(rawSettings.navbarLinks) : (rawSettings.navbarLinks || rawSettings.navbarlinks),
+        footerText: rawSettings.footerText || rawSettings.footertext,
+        footerLinks: typeof rawSettings.footerLinks === "string" ? JSON.parse(rawSettings.footerLinks) : (rawSettings.footerLinks || rawSettings.footerlinks),
+        faviconUrl: rawSettings.faviconUrl || rawSettings.faviconurl,
+        globalStyles: rawSettings.globalStyles || rawSettings.globalstyles,
+        navbarHtml: rawSettings.navbarHtml || rawSettings.navbarhtml,
+        navbarCss: rawSettings.navbarCss || rawSettings.navbarcss,
+        footerHtml: rawSettings.footerHtml || rawSettings.footerhtml,
+        footerCss: rawSettings.footerCss || rawSettings.footercss,
+      };
+    }
+  } catch (err) {
+    console.error("Failed to load settings in rebuildStoreSite:", err);
+  }
+
+  const navbarHtml = settings.navbarHtml ? settings.navbarHtml : `
+  <header class="bg-slate-900 text-white p-4 flex justify-between items-center shadow-lg">
+    <a href="/" class="text-xl font-black tracking-tighter">${settings.navbarLogo || settings.siteTitle || "SBCMS"}</a>
+    <nav class="flex gap-6 font-bold text-sm">
+      ${settings.navbarLinks && settings.navbarLinks.length > 0 
+        ? settings.navbarLinks.map((link: any) => `<a href="${link.url}" class="hover:text-primary">${link.label}</a>`).join("\n    ")
+        : `
+      <a href="/" class="hover:text-primary">Home</a>
+      ${settings.isBlogEnabled ? '<a href="/blog" class="hover:text-primary">Blog</a>' : ""}
+      <a href="/store" class="text-primary font-black">Store</a>
+        `
+      }
+    </nav>
+  </header>
+  `;
+
+  const footerHtml = settings.footerHtml ? settings.footerHtml : `
+  <footer class="bg-slate-900 text-white p-6 text-center text-xs opacity-60">
+    <div class="max-w-4xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+      <p>${settings.footerText || `&copy; ${new Date().getFullYear()} ${settings.siteTitle || "SBCMS"}. Powered by Swiftbase.`}</p>
+      ${settings.footerLinks && settings.footerLinks.length > 0 ? `
+      <div class="flex gap-4 font-bold">
+        ${settings.footerLinks.map((link: any) => `<a href="${link.url}" class="hover:text-primary">${link.label}</a>`).join("\n      ")}
+      </div>
+      ` : ""}
+    </div>
+  </footer>
+  `;
+
+  const cartDrawerHtml = getCartDrawerAndScriptHtml();
 
   // 1. Build Store List HTML
   const indexHtml = `<!DOCTYPE html>
@@ -17,45 +119,77 @@ async function rebuildStoreSite() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Store - SBCMS</title>
+  <title>Store - ${settings.siteTitle || "SBCMS"}</title>
+  ${settings.faviconUrl ? `<link rel="icon" href="${settings.faviconUrl}">` : ""}
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    ${settings.navbarCss || ""}
+    ${settings.footerCss || ""}
+    ${settings.globalStyles || ""}
+  </style>
 </head>
-<body class="bg-base-100 text-base-content">
-  <header class="bg-slate-900 text-white p-4 flex justify-between items-center shadow-lg">
-    <a href="/" class="text-xl font-black tracking-tighter">SBCMS</a>
-    <nav class="flex gap-6 font-bold text-sm">
-      <a href="/" class="hover:text-primary">Home</a>
-      <a href="/blog" class="hover:text-primary">Blog</a>
-      <a href="/store" class="text-primary font-black">Store</a>
-    </nav>
-  </header>
+<body class="bg-base-100 text-base-content min-h-screen flex flex-col">
+  ${navbarHtml}
 
-  <main class="max-w-6xl mx-auto p-8 min-h-screen">
+  <main class="max-w-6xl mx-auto p-8 flex-1 w-full">
     <h1 class="text-5xl font-black mb-8 tracking-tighter">Products</h1>
     <div class="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
       ${products
         .map(
-          (p: CMSProduct) => `
+          (p: CMSProduct) => {
+            const imgUrl = p.images && p.images.length > 0 ? p.images[0] : "";
+            const safeName = (p.name || "").replace(/"/g, '&quot;').replace(/'/g, "\\'");
+            const safeImg = imgUrl.replace(/"/g, '&quot;').replace(/'/g, "\\'");
+            return `
         <div class="border border-base-200 bg-white rounded-3xl p-6 shadow-xl hover:shadow-2xl transition-all duration-300 flex flex-col justify-between">
           <div>
-            ${p.images && p.images.length > 0 ? `<img src="${p.images[0]}" class="w-full h-56 object-cover rounded-2xl mb-4" />` : ""}
+            ${imgUrl ? `<img src="${imgUrl}" class="w-full h-56 object-cover rounded-2xl mb-4" />` : `<div class="w-full h-56 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-300 font-bold mb-4">No Image</div>`}
             <h2 class="text-2xl font-black mb-1">${p.name}</h2>
             <div class="text-xl font-black text-primary mb-4">$${(p.priceCents / 100).toFixed(2)}</div>
-            <p class="text-sm opacity-60 mb-6">${p.description || ""}</p>
+            <p class="text-sm opacity-60 mb-6">${(p.description || "").replace(/<[^>]*>/g, '')}</p>
           </div>
-          <div class="flex flex-col gap-2">
-            <a href="/store/${p.slug}" class="btn bg-primary text-white text-center font-black py-3 rounded-2xl block hover:bg-opacity-90 shadow-md">View Product</a>
+          <div class="space-y-2 pt-2 border-t border-slate-100">
+            <div class="grid grid-cols-2 gap-2">
+              <button onclick="window.SBCart && window.SBCart.addItem({ id: '${p.id}', name: '${safeName}', priceCents: ${p.priceCents}, image: '${safeImg}' })" class="w-full py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold text-xs rounded-xl transition-all text-center" ${!p.inStock ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>
+                Add to Cart
+              </button>
+              <button onclick="window.SBCart ? window.SBCart.buyNow({ id: '${p.id}' }) : (window.location.href='/store/${p.slug}')" class="w-full py-2.5 px-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition-all text-center shadow-sm" ${!p.inStock ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>
+                Buy Now
+              </button>
+            </div>
+            <a href="/store/${p.slug}" class="block text-center text-xs font-bold text-slate-400 hover:text-primary transition-colors py-1">View Details &rarr;</a>
           </div>
         </div>
-      `
+      `;
+          }
         )
         .join("")}
     </div>
   </main>
 
-  <footer class="bg-slate-900 text-white p-6 text-center text-xs opacity-60">
-    <p>&copy; ${new Date().getFullYear()} SBCMS. Powered by Swiftbase.</p>
-  </footer>
+  ${footerHtml}
+
+  <script>
+    (function() {
+      const trackEvent = (type, custom = {}) => {
+        fetch('/api/analytics/event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: window.location.pathname,
+            referrer: document.referrer,
+            browser: navigator.userAgent,
+            operatingSystem: navigator.platform,
+            deviceType: window.innerWidth < 768 ? 'mobile' : 'desktop',
+            conversionName: type === 'conversion' ? custom.name : undefined
+          })
+        }).catch(err => console.error('Analytics tracking failed:', err));
+      };
+      trackEvent('pageview');
+      window.trackCMSConversion = (name) => trackEvent('conversion', { name });
+    })();
+  </script>
+  ${cartDrawerHtml}
 </body>
 </html>`;
 
@@ -77,25 +211,28 @@ async function rebuildStoreSite() {
       </div>` 
       : "";
 
+    const imgUrl = product.images && product.images.length > 0 ? product.images[0] : "";
+    const safeName = (product.name || "").replace(/"/g, '&quot;').replace(/'/g, "\\'");
+    const safeImg = imgUrl.replace(/"/g, '&quot;').replace(/'/g, "\\'");
+
     const productHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${product.name} - Store</title>
+  <title>${product.name} - ${settings.siteTitle || "Store"}</title>
+  ${settings.faviconUrl ? `<link rel="icon" href="${settings.faviconUrl}">` : ""}
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    ${settings.navbarCss || ""}
+    ${settings.footerCss || ""}
+    ${settings.globalStyles || ""}
+  </style>
 </head>
-<body class="bg-base-100 text-base-content">
-  <header class="bg-slate-900 text-white p-4 flex justify-between items-center shadow-lg">
-    <a href="/" class="text-xl font-black tracking-tighter">SBCMS</a>
-    <nav class="flex gap-6 font-bold text-sm">
-      <a href="/" class="hover:text-primary">Home</a>
-      <a href="/blog" class="hover:text-primary">Blog</a>
-      <a href="/store" class="text-primary font-black">Store</a>
-    </nav>
-  </header>
+<body class="bg-base-100 text-base-content min-h-screen flex flex-col">
+  ${navbarHtml}
 
-  <main class="max-w-5xl mx-auto p-8 min-h-screen grid gap-8 md:grid-cols-2">
+  <main class="max-w-5xl mx-auto p-8 flex-1 w-full grid gap-8 md:grid-cols-2">
     <!-- Gallery -->
     <div>
       ${product.images && product.images.length > 0 
@@ -111,25 +248,46 @@ async function rebuildStoreSite() {
       <div>
         <h1 class="text-4xl font-black tracking-tighter mb-2">${product.name}</h1>
         <div class="text-3xl font-black text-primary mb-6">$${(product.priceCents / 100).toFixed(2)}</div>
-        <p class="leading-relaxed opacity-75 mb-8">${product.description || "No description provided."}</p>
+        <div class="leading-relaxed opacity-75 mb-8 prose prose-sm max-w-none">${product.description || "No description provided."}</div>
       </div>
 
-      <div>
-        <button onclick="checkout('${product.id}')" class="w-full bg-slate-950 text-white font-bold py-4 rounded-2xl hover:bg-opacity-90 shadow-lg text-lg flex justify-center items-center gap-2">
-          <span>Buy Now</span>
-        </button>
+      <div class="space-y-3">
+        <div class="grid grid-cols-2 gap-3">
+          <button onclick="window.SBCart && window.SBCart.addItem({ id: '${product.id}', name: '${safeName}', priceCents: ${product.priceCents}, image: '${safeImg}' })" class="w-full py-4 bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold rounded-2xl transition-all text-base shadow-sm" ${!product.inStock ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>
+            Add to Cart
+          </button>
+          <button onclick="window.SBCart ? window.SBCart.buyNow({ id: '${product.id}' }) : checkout('${product.id}')" class="w-full bg-slate-950 text-white font-bold py-4 rounded-2xl hover:bg-opacity-90 shadow-lg text-base" ${!product.inStock ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>
+            Buy Now
+          </button>
+        </div>
         ${affiliateHtml}
       </div>
     </div>
   </main>
 
-  <footer class="bg-slate-900 text-white p-6 text-center text-xs opacity-60">
-    <p>&copy; ${new Date().getFullYear()} SBCMS. Powered by Swiftbase.</p>
-  </footer>
+  ${footerHtml}
 
   <script>
+    (function() {
+      const trackEvent = (type, custom = {}) => {
+        fetch('/api/analytics/event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: window.location.pathname,
+            referrer: document.referrer,
+            browser: navigator.userAgent,
+            operatingSystem: navigator.platform,
+            deviceType: window.innerWidth < 768 ? 'mobile' : 'desktop',
+            conversionName: type === 'conversion' ? custom.name : undefined
+          })
+        }).catch(err => console.error('Analytics tracking failed:', err));
+      };
+      trackEvent('pageview');
+      window.trackCMSConversion = (name) => trackEvent('conversion', { name });
+    })();
+
     async function checkout(productId) {
-      // Trigger analytics checkout conversion start
       if (window.trackCMSConversion) {
         window.trackCMSConversion('checkout_start');
       }
@@ -144,13 +302,14 @@ async function rebuildStoreSite() {
         if (data.url) {
           window.location.href = data.url;
         } else {
-          alert('Failed to launch checkout: ' + (data.message || 'Unknown error'));
+          alert('Checkout initiation failed.');
         }
       } catch (err) {
-        console.error('Checkout failed:', err);
+        console.error('Checkout error:', err);
       }
     }
   </script>
+  ${cartDrawerHtml}
 </body>
 </html>`;
 
@@ -161,17 +320,22 @@ async function rebuildStoreSite() {
 export function registerStoreRoutes(app: FastifyInstance) {
   // Stripe instance helper
   const getStripe = async (): Promise<Stripe | null> => {
-    const settingsRes = await database("cms_settings").execute();
-    const settings = settingsRes.data[0];
-    const stripeKey = process.env.STRIPE_SECRET_KEY || settings?.stripeWebhookSecret; // fallback
-    if (!stripeKey) return null;
-    return new Stripe(stripeKey);
+    try {
+      const settingsRes = await database("cms_settings").execute();
+      const settings = settingsRes.data[0];
+      const stripeKey = process.env.STRIPE_SECRET_KEY || settings?.stripeWebhookSecret; // fallback
+      if (!stripeKey) return null;
+      return new Stripe(stripeKey, { apiVersion: "2024-04-10" });
+    } catch {
+      return null;
+    }
   };
 
   app.get("/products", async (request, reply) => {
     try {
       const res = await database("cms_products").execute();
-      return reply.send(res.data);
+      const list = (res.data || []).map(normalizeProduct);
+      return reply.send(list);
     } catch (err: any) {
       return reply.status(500).send({ message: err.message });
     }
@@ -190,7 +354,7 @@ export function registerStoreRoutes(app: FastifyInstance) {
         try {
           const product = await stripe.products.create({
             name: body.name,
-            description: body.description,
+            description: cleanDescriptionForStripe(body.description),
           });
           const price = await stripe.prices.create({
             product: product.id,
@@ -204,25 +368,35 @@ export function registerStoreRoutes(app: FastifyInstance) {
         }
       }
 
-      const newProduct: CMSProduct = {
-        id: `prod-${Date.now()}`,
-        projectId: "swiftbase",
+      const id = body.id || `prod-${Date.now()}`;
+      const newProduct: any = {
+        id,
+        projectId: process.env.SWIFTBASE_PROJECT_ID || "author-sites",
         slug: body.slug || `prod-${Date.now()}`,
         name: body.name || "Unnamed Product",
         description: body.description || "",
         priceCents: body.priceCents || 0,
         stripeProductId,
         stripePriceId,
-        images: body.images || [],
-        affiliateLinks: body.affiliateLinks || [],
+        images: JSON.stringify(body.images || []),
+        affiliateLinks: JSON.stringify(body.affiliateLinks || []),
+        category: body.category || "",
+        sku: body.sku || "",
+        inStock: body.inStock !== false,
+        stockQuantity: body.stockQuantity !== undefined ? body.stockQuantity : null,
+        limitPerOrder: body.limitPerOrder !== undefined ? body.limitPerOrder : null,
+        customOrderFields: JSON.stringify(body.customOrderFields || []),
+        isPhysical: body.isPhysical !== false,
+        shippingDetails: JSON.stringify(body.shippingDetails || {}),
+        addOnProductIds: JSON.stringify(body.addOnProductIds || []),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
       await database("cms_products").insert(newProduct).execute();
-      await rebuildStoreSite();
+      await rebuildStoreSite().catch(e => app.log.warn(`rebuildStoreSite error: ${e.message}`));
 
-      return reply.send(newProduct);
+      return reply.send(normalizeProduct(newProduct));
     } catch (err: any) {
       return reply.status(500).send({ message: err.message });
     }
@@ -240,10 +414,18 @@ export function registerStoreRoutes(app: FastifyInstance) {
       let stripePriceId = existing.stripePriceId;
       let stripeProductId = existing.stripeProductId;
 
-      if (stripe && (body.name !== undefined || body.priceCents !== undefined)) {
+      if (stripe && stripeProductId) {
         try {
+          const updateData: Stripe.ProductUpdateParams = {};
+          if (body.name !== undefined) updateData.name = body.name;
+          if (body.description !== undefined) updateData.description = cleanDescriptionForStripe(body.description);
+
+          if (Object.keys(updateData).length > 0) {
+            await stripe.products.update(stripeProductId, updateData);
+          }
+
           // Create new price if rate changes
-          if (body.priceCents !== undefined && body.priceCents !== existing.priceCents && stripeProductId) {
+          if (body.priceCents !== undefined && body.priceCents !== existing.priceCents) {
             const price = await stripe.prices.create({
               product: stripeProductId,
               unit_amount: body.priceCents,
@@ -252,22 +434,27 @@ export function registerStoreRoutes(app: FastifyInstance) {
             stripePriceId = price.id;
           }
         } catch (stripeErr: any) {
-          app.log.warn(`Stripe product update price creation skipped or failed: ${stripeErr.message}`);
+          app.log.warn(`Stripe product update skipped or failed: ${stripeErr.message}`);
         }
       }
 
-      const updatedProduct = {
+      const updatedProduct: any = {
         ...existing,
         ...body,
         stripePriceId,
         stripeProductId,
+        images: body.images !== undefined ? JSON.stringify(body.images) : existing.images,
+        affiliateLinks: body.affiliateLinks !== undefined ? JSON.stringify(body.affiliateLinks) : existing.affiliateLinks,
+        customOrderFields: body.customOrderFields !== undefined ? JSON.stringify(body.customOrderFields) : existing.customOrderFields,
+        shippingDetails: body.shippingDetails !== undefined ? JSON.stringify(body.shippingDetails) : existing.shippingDetails,
+        addOnProductIds: body.addOnProductIds !== undefined ? JSON.stringify(body.addOnProductIds) : existing.addOnProductIds,
         updatedAt: new Date().toISOString(),
       };
 
       await database("cms_products").where("id", id).update(updatedProduct).execute();
-      await rebuildStoreSite();
+      await rebuildStoreSite().catch(e => app.log.warn(`rebuildStoreSite error: ${e.message}`));
 
-      return reply.send(updatedProduct);
+      return reply.send(normalizeProduct(updatedProduct));
     } catch (err: any) {
       return reply.status(500).send({ message: err.message });
     }
@@ -309,7 +496,7 @@ export function registerStoreRoutes(app: FastifyInstance) {
           if (!stripeProductId) {
             const product = await stripe.products.create({
               name: prod.name,
-              description: prod.description,
+              description: cleanDescriptionForStripe(prod.description),
             });
             stripeProductId = product.id;
           }
@@ -349,13 +536,37 @@ export function registerStoreRoutes(app: FastifyInstance) {
     }
   });
 
-  // Stripe Checkout Session Creation
-  app.post("/checkout", async (request: FastifyRequest<{ Body: { productId: string } }>, reply) => {
+  // Stripe Checkout Session Creation (Supports single product or multi-item cart)
+  app.post("/checkout", async (request: FastifyRequest<{ Body: { productId?: string; quantity?: number; items?: Array<{ productId: string; quantity: number }> } }>, reply) => {
     try {
-      const { productId } = request.body;
-      const res = await database("cms_products").where("id", productId).execute();
-      const product = res.data[0];
-      if (!product) return reply.status(404).send({ message: "Product not found" });
+      const { productId, quantity, items } = request.body;
+      let checkoutItems: Array<{ productId: string; quantity: number }> = [];
+
+      if (items && Array.isArray(items) && items.length > 0) {
+        checkoutItems = items.filter(i => i.productId && Number(i.quantity) > 0);
+      } else if (productId) {
+        checkoutItems = [{ productId, quantity: Number(quantity) || 1 }];
+      }
+
+      if (checkoutItems.length === 0) {
+        return reply.status(400).send({ message: "No valid items provided for checkout." });
+      }
+
+      // Fetch all products in this checkout
+      const productIds = new Set(checkoutItems.map(i => i.productId));
+      const res = await database("cms_products").execute();
+      const productsMap = new Map<string, any>(
+        (res.data || [])
+          .filter((p: any) => productIds.has(p.id))
+          .map((p: any) => [p.id, normalizeProduct(p)])
+      );
+
+      // Validate all items exist
+      for (const item of checkoutItems) {
+        if (!productsMap.has(item.productId)) {
+          return reply.status(404).send({ message: `Product ${item.productId} not found.` });
+        }
+      }
 
       const stripe = await getStripe();
       if (!stripe) {
@@ -368,19 +579,44 @@ export function registerStoreRoutes(app: FastifyInstance) {
       const settings = settingsRes.data[0];
       const origin = settings?.siteDomain || "http://localhost:3000";
 
+      // Prepare Stripe line items
+      const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = checkoutItems.map(item => {
+        const prod = productsMap.get(item.productId)!;
+        if (prod.stripePriceId) {
+          return {
+            price: prod.stripePriceId,
+            quantity: item.quantity,
+          };
+        } else {
+          return {
+            price_data: {
+              currency: "usd",
+              product_data: {
+                name: prod.name,
+                description: cleanDescriptionForStripe(prod.description),
+                images: prod.images && prod.images.length > 0 ? [prod.images[0]] : undefined,
+              },
+              unit_amount: prod.priceCents || 0,
+            },
+            quantity: item.quantity,
+          };
+        }
+      });
+
+      const firstProduct = productsMap.get(checkoutItems[0].productId);
+      const cancelUrl = checkoutItems.length === 1 && firstProduct
+        ? `${origin}/store/${firstProduct.slug}`
+        : `${origin}/store`;
+
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
-        line_items: [
-          {
-            price: product.stripePriceId || "",
-            quantity: 1,
-          },
-        ],
+        line_items: lineItems,
         mode: "payment",
         success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${origin}/store/${product.slug}`,
+        cancel_url: cancelUrl,
         metadata: {
-          productId: product.id,
+          productIds: JSON.stringify(checkoutItems.map(i => ({ id: i.productId, qty: i.quantity }))),
+          productId: checkoutItems[0].productId,
         },
       });
 
