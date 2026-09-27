@@ -7,7 +7,7 @@ const database = db(process.env.SWIFTBASE_DATABASE_NAME || "cms");
 
 let VULGAR_WORDS: string[] = [];
 try {
-  const list = require("@dsojevic/profanity-list/src/en.json");
+  const list = require("@dsojevic/profanity-list/en.json");
   VULGAR_WORDS = list
     .map((item: any) => typeof item === "string" ? item : (item.text || item.word || ""))
     .filter(Boolean);

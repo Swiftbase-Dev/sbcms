@@ -40,7 +40,31 @@
       <div class="lg:col-span-3 card bg-white dark:bg-slate-900 border border-base-200 p-8 rounded-3xl shadow-xl space-y-6">
         <!-- Search and Header Controls -->
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
-          <h3 class="font-bold text-sm uppercase tracking-widest opacity-60">Uploaded Assets ({{ filteredAssets.length }})</h3>
+          <div class="flex items-center gap-3">
+            <h3 class="font-bold text-sm uppercase tracking-widest opacity-60">Uploaded Assets ({{ sortedAssets.length }})</h3>
+            
+            <!-- View Mode Toggle -->
+            <div class="join border border-base-300 dark:border-slate-700 rounded-xl overflow-hidden shadow-xs">
+              <button 
+                type="button"
+                @click="viewMode = 'grid'" 
+                :class="['join-item btn btn-xs px-2.5 gap-1.5 transition-all', viewMode === 'grid' ? 'btn-primary text-white' : 'btn-ghost']"
+                title="Card View"
+              >
+                <font-awesome-icon :icon="['fas', 'table-cells-large']" class="w-3 h-3" />
+                <span class="hidden sm:inline text-[11px] font-bold">Cards</span>
+              </button>
+              <button 
+                type="button"
+                @click="viewMode = 'list'" 
+                :class="['join-item btn btn-xs px-2.5 gap-1.5 transition-all', viewMode === 'list' ? 'btn-primary text-white' : 'btn-ghost']"
+                title="List View"
+              >
+                <font-awesome-icon :icon="['fas', 'list']" class="w-3 h-3" />
+                <span class="hidden sm:inline text-[11px] font-bold">List</span>
+              </button>
+            </div>
+          </div>
           
           <div class="flex items-center gap-3 w-full md:w-auto">
             <input type="text" v-model="searchQuery" placeholder="Search images..." class="input input-sm input-bordered rounded-xl px-3 w-full md:w-48 text-xs focus:outline-none" />
@@ -57,20 +81,21 @@
         </div>
 
         <!-- Empty State -->
-        <div v-else-if="filteredAssets.length === 0" class="text-center py-20 opacity-55 text-sm flex flex-col items-center justify-center gap-2">
+        <div v-else-if="sortedAssets.length === 0" class="text-center py-20 opacity-55 text-sm flex flex-col items-center justify-center gap-2">
           <div class="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-2">
             <font-awesome-icon :icon="['fas', 'images']" class="w-6 h-6" />
           </div>
           No images matched your filters.
         </div>
 
-        <!-- Cards Grid -->
+        <!-- Gallery Content (Card / List) -->
         <div v-else class="space-y-6">
-          <div class="grid grid-cols-2 md:grid-cols-3 gap-6">
+          <!-- Card View -->
+          <div v-if="viewMode === 'grid'" class="grid grid-cols-2 md:grid-cols-3 gap-6">
             <div v-for="asset in paginatedAssets" :key="asset.key" class="group relative card bg-slate-50 dark:bg-slate-800/40 border border-base-200 rounded-2xl overflow-hidden shadow hover:shadow-lg hover:scale-[1.01] transition-all">
               <!-- Thumbnail preview -->
               <div class="h-32 bg-slate-200 dark:bg-slate-800 relative flex items-center justify-center overflow-hidden">
-                <img :src="asset.thumbnailUrl || asset.url" :alt="asset.name" class="object-cover w-full h-full" />
+                <img :src="`${asset.thumbnailUrl || asset.url}?t=${new Date(asset.lastModified || Date.now()).getTime()}`" :alt="asset.name" class="object-cover w-full h-full" />
                 <!-- Hover Action overlay -->
                 <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-all">
                   <button @click="copyLink(asset.url)" class="btn btn-xs btn-white bg-white text-slate-900 border-none font-bold rounded-lg px-3">
@@ -93,11 +118,85 @@
             </div>
           </div>
 
-          <!-- Pagination Controls -->
-          <div v-if="totalPages > 1" class="flex justify-center items-center gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-            <button :disabled="currentPage === 1" @click="currentPage--" class="btn btn-sm btn-outline rounded-xl px-4 font-bold text-xs uppercase">Prev</button>
-            <span class="text-xs font-bold text-slate-500">Page {{ currentPage }} of {{ totalPages }}</span>
-            <button :disabled="currentPage === totalPages" @click="currentPage++" class="btn btn-sm btn-outline rounded-xl px-4 font-bold text-xs uppercase">Next</button>
+          <!-- List View -->
+          <div v-else class="overflow-x-auto rounded-2xl border border-base-200 shadow-sm bg-white dark:bg-slate-900">
+            <table class="table table-sm w-full">
+              <thead>
+                <tr class="bg-slate-50 dark:bg-slate-800/60 border-b border-base-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  <th class="w-16">Preview</th>
+                  <th class="cursor-pointer select-none hover:text-primary transition-colors" @click="toggleSort('name')">
+                    <div class="flex items-center gap-1.5">
+                      <span>File Name</span>
+                      <font-awesome-icon v-if="sortField === 'name'" :icon="['fas', sortDirection === 'asc' ? 'arrow-up' : 'arrow-down']" class="w-3 h-3 text-primary" />
+                    </div>
+                  </th>
+                  <th class="cursor-pointer select-none hover:text-primary transition-colors w-28" @click="toggleSort('size')">
+                    <div class="flex items-center gap-1.5">
+                      <span>Size</span>
+                      <font-awesome-icon v-if="sortField === 'size'" :icon="['fas', sortDirection === 'asc' ? 'arrow-up' : 'arrow-down']" class="w-3 h-3 text-primary" />
+                    </div>
+                  </th>
+                  <th class="cursor-pointer select-none hover:text-primary transition-colors w-36" @click="toggleSort('lastModified')">
+                    <div class="flex items-center gap-1.5">
+                      <span>Modified</span>
+                      <font-awesome-icon v-if="sortField === 'lastModified'" :icon="['fas', sortDirection === 'asc' ? 'arrow-up' : 'arrow-down']" class="w-3 h-3 text-primary" />
+                    </div>
+                  </th>
+                  <th class="text-right w-28">Actions</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-base-200 text-xs">
+                <tr v-for="asset in paginatedAssets" :key="asset.key" class="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
+                  <td>
+                    <div class="w-10 h-10 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 border border-base-200 flex items-center justify-center">
+                      <img :src="`${asset.thumbnailUrl || asset.url}?t=${new Date(asset.lastModified || Date.now()).getTime()}`" :alt="asset.name" class="object-cover w-full h-full" />
+                    </div>
+                  </td>
+                  <td class="font-bold text-slate-800 dark:text-slate-200">
+                    <span class="truncate block max-w-xs md:max-w-md" :title="asset.name">{{ asset.name }}</span>
+                  </td>
+                  <td class="opacity-70 font-mono text-[11px] whitespace-nowrap">
+                    {{ formatBytes(asset.size) }}
+                  </td>
+                  <td class="opacity-70 whitespace-nowrap text-[11px]">
+                    {{ asset.lastModified ? new Date(asset.lastModified).toLocaleDateString() : '—' }}
+                  </td>
+                  <td class="text-right">
+                    <div class="flex items-center justify-end gap-1.5">
+                      <button @click="copyLink(asset.url)" class="btn btn-xs btn-outline rounded-lg font-bold" title="Copy URL">
+                        Copy
+                      </button>
+                      <button @click="deleteAsset(asset.name)" class="btn btn-xs btn-ghost text-rose-500 hover:bg-rose-500/10 rounded-lg" title="Delete">
+                        <font-awesome-icon :icon="['fas', 'trash-can']" class="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Pagination Controls & Page Size Dropdown -->
+          <div class="flex flex-col sm:flex-row justify-between items-center gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+            <!-- Page Size Selector -->
+            <div class="flex items-center gap-2 text-xs text-slate-500 font-bold">
+              <span>Show</span>
+              <select v-model="itemsPerPage" class="select select-xs select-bordered rounded-lg text-xs font-bold focus:outline-none">
+                <option :value="9">9 per page</option>
+                <option :value="18">18 per page</option>
+                <option :value="36">36 per page</option>
+                <option :value="72">72 per page</option>
+                <option :value="10000">All assets</option>
+              </select>
+              <span class="opacity-60 text-[11px]">({{ sortedAssets.length }} total)</span>
+            </div>
+
+            <!-- Page Buttons -->
+            <div v-if="totalPages > 1" class="flex items-center gap-3">
+              <button :disabled="currentPage === 1" @click="currentPage--" class="btn btn-sm btn-outline rounded-xl px-4 font-bold text-xs uppercase">Prev</button>
+              <span class="text-xs font-bold text-slate-500">Page {{ currentPage }} of {{ totalPages }}</span>
+              <button :disabled="currentPage === totalPages" @click="currentPage++" class="btn btn-sm btn-outline rounded-xl px-4 font-bold text-xs uppercase">Next</button>
+            </div>
           </div>
         </div>
       </div>
@@ -138,6 +237,11 @@ const assets = ref<Asset[]>([]);
 const loading = ref(true);
 const dragover = ref(false);
 
+// View Mode & Sorting State
+const viewMode = ref<'grid' | 'list'>('grid');
+const sortField = ref<'name' | 'size' | 'lastModified'>('name');
+const sortDirection = ref<'asc' | 'desc'>('asc');
+
 // Search & Pagination State
 const searchQuery = ref("");
 const currentPage = ref(1);
@@ -159,24 +263,49 @@ const showConfirm = (title: string, message: string, onConfirm: () => void) => {
   modal.value = { show: true, title, message, type: "confirm", onConfirm };
 };
 
-// Reset page to 1 when search query changes
-watch(searchQuery, () => {
+// Reset page to 1 when search query or itemsPerPage changes
+watch([searchQuery, itemsPerPage], () => {
   currentPage.value = 1;
 });
 
-const filteredAssets = computed(() => {
+const toggleSort = (field: 'name' | 'size' | 'lastModified') => {
+  if (sortField.value === field) {
+    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortField.value = field;
+    sortDirection.value = 'asc';
+  }
+};
+
+const sortedAssets = computed(() => {
   const query = searchQuery.value.toLowerCase().trim();
-  if (!query) return assets.value;
-  return assets.value.filter(a => a.name.toLowerCase().includes(query));
+  let list = assets.value;
+  if (query) {
+    list = list.filter(a => a.name.toLowerCase().includes(query));
+  }
+
+  return [...list].sort((a, b) => {
+    let comparison = 0;
+    if (sortField.value === 'name') {
+      comparison = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    } else if (sortField.value === 'size') {
+      comparison = (a.size || 0) - (b.size || 0);
+    } else if (sortField.value === 'lastModified') {
+      const timeA = a.lastModified ? new Date(a.lastModified).getTime() : 0;
+      const timeB = b.lastModified ? new Date(b.lastModified).getTime() : 0;
+      comparison = timeA - timeB;
+    }
+    return sortDirection.value === 'asc' ? comparison : -comparison;
+  });
 });
 
 const totalPages = computed(() => {
-  return Math.ceil(filteredAssets.value.length / itemsPerPage.value) || 1;
+  return Math.ceil(sortedAssets.value.length / itemsPerPage.value) || 1;
 });
 
 const paginatedAssets = computed(() => {
   const start = (currentPage.value - 1) * itemsPerPage.value;
-  return filteredAssets.value.slice(start, start + itemsPerPage.value);
+  return sortedAssets.value.slice(start, start + itemsPerPage.value);
 });
 
 const fetchAssets = async (forceRefresh = false) => {

@@ -119,4 +119,90 @@ Analyze the current HTML and CSS layout. If the user's prompt asks to modify, ed
       return reply.status(500).send({ message: err.message });
     }
   });
+
+  app.post("/ai/proofread", async (request: FastifyRequest<{ Body: { text: string } }>, reply) => {
+    try {
+      const { text } = request.body;
+      if (!text) return reply.status(400).send({ message: "Text is required" });
+
+      const aiKey = process.env.SWIFTBASE_AI_KEY;
+      if (!aiKey) {
+        return reply.send({ corrections: [] });
+      }
+
+      const expirationTime = Date.now() + 3600 * 1000;
+      setAccessToken(aiKey, expirationTime);
+
+      const systemPrompt = `You are a professional copyeditor. Proofread the text for spelling and grammar errors.
+Provide a list of recommended edits, improvements, and style suggestions.
+You must return ONLY a JSON object with a 'corrections' array, where each correction has properties:
+- 'originalText': the exact substring from the input text to be replaced
+- 'suggestedText': the proposed replacement
+- 'reason': why this change is suggested (e.g., spelling error, grammar correction, stylistic improvements, passive voice)`;
+
+      const data = await ai.chat.completions.create({
+        model: "gemini-3.5-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: text }
+        ]
+      });
+
+      const textResponse = data.choices?.[0]?.message?.content || "";
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return reply.send({ corrections: parsed.corrections || [] });
+      }
+
+      return reply.send({ corrections: [] });
+    } catch (err: any) {
+      app.log.error(err, "Proofread failed");
+      return reply.status(500).send({ message: err.message });
+    }
+  });
+
+  app.post("/ai/generate-post", async (request: FastifyRequest<{ Body: { prompt: string } }>, reply) => {
+    try {
+      const { prompt } = request.body;
+      if (!prompt) return reply.status(400).send({ message: "Prompt is required" });
+
+      const aiKey = process.env.SWIFTBASE_AI_KEY;
+      if (!aiKey) {
+        return reply.status(500).send({ message: "AI Integration is not configured" });
+      }
+
+      const expirationTime = Date.now() + 3600 * 1000;
+      setAccessToken(aiKey, expirationTime);
+
+      const systemPrompt = `You are a professional blog writer and content marketer.
+Based on the user's prompt, generate a compelling, SEO-optimized blog post.
+You must return ONLY a JSON object with properties:
+- 'title': a catchy, professional blog post headline (plain text)
+- 'content': the complete body content of the blog post, formatted in clean, semantic HTML suitable for rich text editors (use standard tags like <p>, <h2>, <h3>, <ul>, <li>, <strong>, <em>, etc., but DO NOT include head, body, or html tags)`;
+
+      const data = await ai.chat.completions.create({
+        model: "gemini-3.5-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: prompt }
+        ]
+      });
+
+      const textResponse = data.choices?.[0]?.message?.content || "";
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return reply.send({
+          title: parsed.title || "Generated Title",
+          content: parsed.content || ""
+        });
+      }
+
+      throw new Error("Failed to parse AI response into structured blog post");
+    } catch (err: any) {
+      app.log.error(err, "Blog post generation failed");
+      return reply.status(500).send({ message: err.message });
+    }
+  });
 }

@@ -51,6 +51,11 @@ const bootstrap = async () => {
 
   // Setup route authentication guard
   router.beforeEach(async (to, from, next) => {
+    const isPublicRoute = to.path.startsWith("/download") || to.path.startsWith("/redeem");
+    if (isPublicRoute) {
+      return next();
+    }
+
     const params = new URLSearchParams(window.location.search);
     const isOidcCallback = params.has("code") && params.has("state");
 
@@ -58,6 +63,7 @@ const bootstrap = async () => {
       try {
         await loginWithRedirect({
           redirectUri: window.location.origin + to.fullPath,
+          prompt: "login",
         });
         return; // Pause navigation
       } catch (err) {
@@ -67,19 +73,22 @@ const bootstrap = async () => {
     next();
   });
 
-  // Force OIDC redirect check on initial boot if not authenticated and not callback
+  // Force OIDC redirect check on initial boot if not authenticated, not callback, and not public route
+  const isPublicPath = window.location.pathname.startsWith("/download") || window.location.pathname.startsWith("/redeem");
   const initialParams = new URLSearchParams(window.location.search);
   const isInitialCallback = initialParams.has("code") && initialParams.has("state");
-  if (!isLoggedIn() && !isInitialCallback) {
+  if (!isLoggedIn() && !isInitialCallback && !isPublicPath) {
     try {
       await loginWithRedirect({
         redirectUri: window.location.origin + window.location.pathname,
+        prompt: "login",
       });
       return;
     } catch (err) {
       console.error("Initial OIDC redirect failed:", err);
     }
   }
+
 
   // Intercept fetch requests to automatically append access token headers
   const token = await getAccessToken();

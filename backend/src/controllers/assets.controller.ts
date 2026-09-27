@@ -2,18 +2,36 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { Storage } from "swiftbase-admin-sdk";
 import { Jimp } from "jimp";
 
+function getStorageInstance() {
+  const bucket = process.env.SWIFTBASE_STORAGE_BUCKET;
+  if (!bucket) {
+    throw new Error("SWIFTBASE_STORAGE_BUCKET environment variable is required");
+  }
+  const endpoint = `${(process.env.SWIFTBASE_URL || process.env.SWIFTBASE_API_URL || "https://api.swiftbase.io").replace(/\/$/, "")}/storage`;
+  return new Storage({ bucket, endpoint });
+}
+
 export async function generateMissingThumbnails() {
-  const bucketName = process.env.SWIFTBASE_STORAGE_BUCKET || "cms-site-assets";
-  const storage = new Storage({ bucket: bucketName });
+  const storage = getStorageInstance();
   
   try {
     const result = await storage.listObjects({ prefix: "assets/" });
-    const objects = result.contents || [];
+    const rawItems: any[] = Array.isArray(result) 
+      ? result 
+      : (Array.isArray((result as any)?.contents) ? (result as any).contents : []);
+
+    const objects = rawItems.map((obj: any) => ({
+      key: obj.key || (obj.path && obj.name ? `${obj.path}/${obj.name}` : obj.name || ""),
+      size: obj.size || 0,
+      lastModified: obj.lastModified || obj.modified
+    }));
     
     // Filter for primary images
     const primaryImages = objects.filter(obj => 
+      obj.key &&
       obj.key !== "assets/" && 
       !obj.key.startsWith("assets/thumb_") &&
+      !obj.key.startsWith("thumb_") &&
       /\.(jpe?g|png|webp|gif)$/i.test(obj.key)
     );
 
@@ -23,7 +41,7 @@ export async function generateMissingThumbnails() {
       const filename = img.key.replace(/^assets\//, "");
       const thumbKey = `assets/thumb_${filename}`;
       
-      const thumbExists = objects.some(obj => obj.key === thumbKey);
+      const thumbExists = objects.some(obj => obj.key === thumbKey || obj.key === `thumb_${filename}`);
       if (!thumbExists) {
         console.log(`[Thumbnail Worker] Generating thumbnail for ${img.key}...`);
         try {
@@ -59,8 +77,6 @@ export async function generateMissingThumbnails() {
 }
 
 export function registerAssetRoutes(app: FastifyInstance) {
-  const bucketName = process.env.SWIFTBASE_STORAGE_BUCKET || "cms-site-assets";
-
   // Trigger background check for missing thumbnails on startup
   generateMissingThumbnails().catch(err => {
     app.log.error(`Failed to generate missing thumbnails: ${err.message}`);
@@ -69,22 +85,27 @@ export function registerAssetRoutes(app: FastifyInstance) {
   // List all uploaded assets
   app.get("/assets", async (request, reply) => {
     try {
-      const storage = new Storage({ bucket: bucketName });
+      const storage = getStorageInstance();
       const result = await storage.listObjects({ prefix: "assets/" });
       
-      const assets = (result.contents || [])
-        .filter(obj => obj.key !== "assets/" && !obj.key.startsWith("assets/thumb_")) // Exclude prefix folder and thumbnails
-        .map(obj => {
-          const filename = obj.key.replace(/^assets\//, "");
+      const rawItems: any[] = Array.isArray(result) 
+        ? result 
+        : (Array.isArray((result as any)?.contents) ? (result as any).contents : []);
+
+      const assets = rawItems
+        .map((obj: any) => {
+          const rawKey = obj.key || (obj.path && obj.name ? `${obj.path}/${obj.name}` : obj.name || "");
+          const filename = rawKey.replace(/^assets\//, "").replace(/^\//, "");
           return {
             name: filename,
-            key: obj.key,
-            size: obj.size,
-            lastModified: obj.lastModified,
+            key: rawKey.startsWith("assets/") ? rawKey : `assets/${rawKey}`,
+            size: obj.size || 0,
+            lastModified: obj.lastModified || obj.modified,
             url: `/assets/${filename}`,
-            thumbnailUrl: `/assets/thumb_${filename}` // Return thumbnail URL reference
+            thumbnailUrl: `/assets/thumb_${filename}`
           };
-        });
+        })
+        .filter(obj => obj.name && obj.name !== "assets" && !obj.name.startsWith("thumb_"));
 
       return reply.send(assets);
     } catch (err: any) {
@@ -93,7 +114,7 @@ export function registerAssetRoutes(app: FastifyInstance) {
   });
 
   // Base64 image upload
-  app.post("/assets/upload", async (
+  app.post("/assets/upload", { bodyLimit: 52428800 }, async (
     request: FastifyRequest<{ Body: { name: string; contentType: string; base64: string; thumbBase64?: string } }>,
     reply
   ) => {
@@ -108,7 +129,7 @@ export function registerAssetRoutes(app: FastifyInstance) {
       const targetKey = `assets/${safeName}`;
 
       const buffer = Buffer.from(base64, "base64");
-      const storage = new Storage({ bucket: bucketName });
+      const storage = getStorageInstance();
       await storage.putObject(targetKey, buffer, { contentType: contentType || "application/octet-stream" });
 
       // Save thumbnail if provided
@@ -121,9 +142,10 @@ export function registerAssetRoutes(app: FastifyInstance) {
         success: true,
         name: safeName,
         url: `/assets/${safeName}`,
-        thumbnailUrl: thumbBase64 ? `/assets/thumb_${safeName}` : `/assets/safeName`
+        thumbnailUrl: `/assets/thumb_${safeName}`
       });
     } catch (err: any) {
+      request.log.error(err, `Upload error for asset: ${err.message}`);
       return reply.status(500).send({ message: err.message });
     }
   });
@@ -138,7 +160,7 @@ export function registerAssetRoutes(app: FastifyInstance) {
       const safeName = name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
       const targetKey = `assets/${safeName}`;
 
-      const storage = new Storage({ bucket: bucketName });
+      const storage = getStorageInstance();
       await storage.deleteObject(targetKey);
       
       // Attempt thumbnail deletion silently

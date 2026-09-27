@@ -51,6 +51,97 @@
 
       <!-- Settings & Sidebar fields -->
       <div class="space-y-6">
+        <!-- Copy Editor Card -->
+        <div class="card bg-white dark:bg-slate-900 border border-base-200 p-6 rounded-3xl shadow-xl space-y-4">
+          <div class="flex justify-between items-center">
+            <h3 class="font-bold text-sm uppercase tracking-widest opacity-60">Copy Editor</h3>
+            <span class="badge badge-secondary text-white font-bold text-[9px] uppercase">Powered by Gemini</span>
+          </div>
+
+          <p class="text-xs opacity-60">Scan the document for spelling, grammar, and style suggestions.</p>
+
+          <button 
+            type="button" 
+            @click="runProofreader" 
+            :disabled="scanningAI || !quillInstance" 
+            class="btn btn-sm btn-primary text-white w-full rounded-xl uppercase text-xs font-bold"
+          >
+            <span v-if="scanningAI" class="loading loading-spinner loading-xs"></span>
+            {{ scanningAI ? 'Analyzing Text...' : 'Scan Post Content' }}
+          </button>
+
+          <!-- Suggestions List -->
+          <div v-if="aiCorrections.length > 0" class="space-y-3 pt-2">
+            <div class="divider my-0"></div>
+            <div class="flex justify-between items-center text-xs">
+              <span class="font-bold uppercase text-[10px] text-slate-400">Suggestions ({{ aiCorrections.length }})</span>
+              <button type="button" @click="aiCorrections = []" class="text-error font-bold text-[10px] uppercase hover:underline">Clear</button>
+            </div>
+            
+            <div class="max-h-60 overflow-y-auto space-y-2 pr-1">
+              <div 
+                v-for="(corr, idx) in aiCorrections" 
+                :key="idx" 
+                class="bg-slate-50 dark:bg-slate-950 border border-base-200 rounded-xl p-3 text-xs space-y-2 hover:border-primary transition-colors"
+              >
+                <div>
+                  <span class="text-error line-through mr-2 font-mono">{{ corr.originalText }}</span>
+                  <span class="text-success font-bold font-mono">{{ corr.suggestedText }}</span>
+                </div>
+                <p class="opacity-60 text-[11px] leading-relaxed">{{ corr.reason }}</p>
+                <div class="flex gap-2 pt-1">
+                  <button 
+                    type="button" 
+                    @click="applyCorrection(corr)" 
+                    class="btn btn-xs btn-success text-white rounded-lg font-bold text-[9px] uppercase"
+                  >
+                    Apply Edit
+                  </button>
+                  <button 
+                    type="button" 
+                    @click="aiCorrections.splice(idx, 1)" 
+                    class="btn btn-xs btn-ghost rounded-lg font-bold text-[9px] uppercase opacity-50 hover:opacity-100"
+                  >
+                    Ignore
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div v-else-if="scannedOnce" class="text-center py-4 bg-slate-50 dark:bg-slate-950 border border-base-200 border-dashed rounded-xl">
+            <p class="text-xs text-success font-bold">✨ No grammar or spelling issues found!</p>
+          </div>
+        </div>
+
+        <!-- Post Generator Card -->
+        <div class="card bg-white dark:bg-slate-900 border border-base-200 p-6 rounded-3xl shadow-xl space-y-4">
+          <div class="flex justify-between items-center">
+            <h3 class="font-bold text-sm uppercase tracking-widest opacity-60">Post Generator</h3>
+            <span class="badge badge-secondary text-white font-bold text-[9px] uppercase">Powered by Gemini</span>
+          </div>
+
+          <p class="text-xs opacity-60">Write a topic or description and let AI draft the title and body for you.</p>
+
+          <div class="form-control">
+            <textarea 
+              v-model="aiGenerationPrompt" 
+              placeholder="e.g. Write a 300-word introduction to TypeScript for beginners with simple code snippets..." 
+              class="textarea textarea-bordered rounded-xl text-xs h-20 w-full resize-none"
+            ></textarea>
+          </div>
+
+          <button 
+            type="button" 
+            @click="generatePostFromPrompt" 
+            :disabled="generatingPost || !aiGenerationPrompt.trim() || !quillInstance" 
+            class="btn btn-sm btn-accent text-white w-full rounded-xl uppercase text-xs font-bold"
+          >
+            <span v-if="generatingPost" class="loading loading-spinner loading-xs"></span>
+            {{ generatingPost ? 'Generating Post...' : 'Generate Post' }}
+          </button>
+        </div>
+
         <!-- Metadata Info -->
         <div class="card bg-white dark:bg-slate-900 border border-base-200 p-6 rounded-3xl shadow-xl space-y-4">
           <h3 class="font-bold text-sm uppercase tracking-widest opacity-60">Post Attributes</h3>
@@ -191,6 +282,55 @@
 
         <div class="modal-action">
           <button @click="closeGalleryModal" class="btn btn-ghost rounded-xl font-bold">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Giphy Selector Modal -->
+    <div v-if="showGiphyModal" class="modal modal-open z-50">
+      <div class="modal-box rounded-3xl border border-base-200 shadow-2xl bg-white dark:bg-slate-900 max-w-3xl">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="badge badge-sm font-black bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 text-white border-none">GIPHY</span>
+              <h3 class="font-black text-2xl tracking-tight">Insert Animated GIF</h3>
+            </div>
+            <p class="text-xs opacity-50 mt-1">Search millions of GIFs powered by Giphy.com</p>
+          </div>
+          <div class="relative w-full sm:w-64">
+            <input 
+              type="text" 
+              v-model="giphySearchQuery" 
+              placeholder="Search GIFs on Giphy..." 
+              class="input input-sm input-bordered rounded-xl px-3 w-full text-xs focus:outline-none" 
+            />
+            <span v-if="giphyLoading" class="absolute right-3 top-1/2 -translate-y-1/2 loading loading-spinner loading-xs text-primary"></span>
+          </div>
+        </div>
+
+        <div v-if="giphyLoading && giphyResults.length === 0" class="flex justify-center py-16">
+          <span class="loading loading-spinner loading-lg text-primary"></span>
+        </div>
+        <div v-else-if="giphyResults.length === 0" class="text-center py-16 text-sm opacity-50">
+          No GIFs found matching "{{ giphySearchQuery }}".
+        </div>
+        <div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-96 overflow-y-auto p-1">
+          <div 
+            v-for="gif in giphyResults" 
+            :key="gif.id" 
+            @click="selectGiphyGif(gif.original || gif.preview)" 
+            class="group cursor-pointer relative card border border-base-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow hover:shadow-lg hover:scale-[1.03] transition-all bg-slate-950 aspect-video flex items-center justify-center"
+          >
+            <img :src="gif.preview" :alt="gif.title" class="object-cover w-full h-full" loading="lazy" />
+            <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <span class="badge badge-primary font-bold text-[10px] text-white">Insert GIF</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-action flex justify-between items-center mt-6">
+          <span class="text-[10px] opacity-40 font-mono">Powered by GIPHY</span>
+          <button @click="showGiphyModal = false" class="btn btn-ghost rounded-xl font-bold">Cancel</button>
         </div>
       </div>
     </div>
@@ -351,10 +491,51 @@ class SimpleImageResize {
       this.img!.style.margin = "0";
     });
 
+    // Red delete button on the right end
+    const btnDelete = document.createElement("button");
+    btnDelete.type = "button";
+    btnDelete.innerText = "✕ Delete";
+    btnDelete.style.color = "#f43f5e";
+    btnDelete.style.fontSize = "10px";
+    btnDelete.style.fontWeight = "bold";
+    btnDelete.style.padding = "2px 8px";
+    btnDelete.style.borderRadius = "4px";
+    btnDelete.style.backgroundColor = "rgba(244, 63, 94, 0.1)";
+    btnDelete.style.border = "1px solid rgba(244, 63, 94, 0.3)";
+    btnDelete.style.cursor = "pointer";
+    btnDelete.style.marginLeft = "4px";
+    btnDelete.addEventListener("mouseenter", () => {
+      btnDelete.style.backgroundColor = "#e11d48";
+      btnDelete.style.color = "white";
+    });
+    btnDelete.addEventListener("mouseleave", () => {
+      btnDelete.style.backgroundColor = "rgba(244, 63, 94, 0.1)";
+      btnDelete.style.color = "#f43f5e";
+    });
+    btnDelete.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (this.img) {
+        try {
+          const blot = Quill.find(this.img);
+          if (blot) {
+            blot.deleteAt(0);
+          } else {
+            this.img.remove();
+          }
+        } catch (delErr) {
+          this.img.remove();
+        }
+        this.hideOverlay();
+        this.quill.update();
+      }
+    });
+
     toolbar.appendChild(btnLeft);
     toolbar.appendChild(btnCenter);
     toolbar.appendChild(btnRight);
     toolbar.appendChild(btnInline);
+    toolbar.appendChild(btnDelete);
     this.overlay.appendChild(toolbar);
     
     this.quill.root.parentNode.appendChild(this.overlay);
@@ -377,6 +558,18 @@ class SimpleImageResize {
       this.overlay = null;
     }
   }
+}
+
+const Font = Quill.import("formats/font") as any;
+if (Font) {
+  Font.whitelist = ["sacramento", "cormorant-garamond", "serif", "monospace", "roboto"];
+  Quill.register(Font, true);
+}
+
+const Size = Quill.import("formats/size") as any;
+if (Size) {
+  Size.whitelist = ["small", "normal", "large", "huge"];
+  Quill.register(Size, true);
 }
 
 Quill.register("modules/imageResize", SimpleImageResize);
@@ -432,10 +625,166 @@ const galleryAssets = ref<any[]>([]);
 const isQuillImageSelection = ref(false);
 const lastQuillSelectionIndex = ref(0);
 
+// AI Copyeditor State & Methods
+const scanningAI = ref(false);
+const scannedOnce = ref(false);
+const aiCorrections = ref<Array<{ originalText: string; suggestedText: string; reason: string }>>([]);
+
+const runProofreader = async () => {
+  if (!quillInstance.value) return;
+  const rawText = quillInstance.value.getText().trim();
+  if (!rawText) return;
+
+  scanningAI.value = true;
+  scannedOnce.value = false;
+  aiCorrections.value = [];
+
+  try {
+    const data: any = await cachedFetch("/api/ai/proofread", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: rawText }),
+    });
+    aiCorrections.value = data.corrections || [];
+    scannedOnce.value = true;
+  } catch (err) {
+    console.error("Proofreader request failed:", err);
+  } finally {
+    scanningAI.value = false;
+  }
+};
+
+const applyCorrection = (corr: { originalText: string; suggestedText: string; reason: string }) => {
+  if (!quillInstance.value) return;
+  const text = quillInstance.value.getText();
+  const index = text.indexOf(corr.originalText);
+  if (index !== -1) {
+    quillInstance.value.deleteText(index, corr.originalText.length);
+    quillInstance.value.insertText(index, corr.suggestedText);
+    
+    // Remove the correction from the list
+    aiCorrections.value = aiCorrections.value.filter(c => c !== corr);
+  }
+};
+
+// AI Post Generator State & Methods
+const aiGenerationPrompt = ref("");
+const generatingPost = ref(false);
+
+const generatePostFromPrompt = async () => {
+  if (!aiGenerationPrompt.value.trim() || !quillInstance.value) return;
+
+  generatingPost.value = true;
+  try {
+    const data: any = await cachedFetch("/api/ai/generate-post", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: aiGenerationPrompt.value }),
+    });
+
+    if (data.title) postTitle.value = data.title;
+    if (data.content) quillInstance.value.root.innerHTML = data.content;
+    
+    aiGenerationPrompt.value = "";
+    showAlert("Success", "Blog post content generated successfully!", false);
+  } catch (err) {
+    console.error("Post generation failed:", err);
+    showAlert("Error", "Failed to generate blog post. Please try again.", false);
+  } finally {
+    generatingPost.value = false;
+  }
+};
+
 // Search & Pagination inside Gallery Modal
 const gallerySearchQuery = ref("");
 const galleryCurrentPage = ref(1);
 const galleryItemsPerPage = ref(6);
+
+// Giphy Modal State & Methods
+const showGiphyModal = ref(false);
+const giphySearchQuery = ref("");
+const giphyLoading = ref(false);
+const giphyResults = ref<any[]>([]);
+const lastGiphySelectionIndex = ref(0);
+
+const FALLBACK_GIFS = [
+  { id: "1", title: "Excited Cat", preview: "https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif", original: "https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif" },
+  { id: "2", title: "Happy Dance", preview: "https://media.giphy.com/media/blSTtZehjAZ8I/giphy.gif", original: "https://media.giphy.com/media/blSTtZehjAZ8I/giphy.gif" },
+  { id: "3", title: "Mind Blown", preview: "https://media.giphy.com/media/26ufdipQqU2lhNA4g/giphy.gif", original: "https://media.giphy.com/media/26ufdipQqU2lhNA4g/giphy.gif" },
+  { id: "4", title: "Thumbs Up", preview: "https://media.giphy.com/media/111ebonMs90YLu/giphy.gif", original: "https://media.giphy.com/media/111ebonMs90YLu/giphy.gif" },
+  { id: "5", title: "Confused Travolta", preview: "https://media.giphy.com/media/g01ZnwAUvutuK8GIQn/giphy.gif", original: "https://media.giphy.com/media/g01ZnwAUvutuK8GIQn/giphy.gif" },
+  { id: "6", title: "Popcorn", preview: "https://media.giphy.com/media/GLbiGvv9qrpny/giphy.gif", original: "https://media.giphy.com/media/GLbiGvv9qrpny/giphy.gif" },
+  { id: "7", title: "Celebration", preview: "https://media.giphy.com/media/artj92V8o75VPL7AeQ/giphy.gif", original: "https://media.giphy.com/media/artj92V8o75VPL7AeQ/giphy.gif" },
+  { id: "8", title: "Writing Typing", preview: "https://media.giphy.com/media/unQ3IJU2RG7DO/giphy.gif", original: "https://media.giphy.com/media/unQ3IJU2RG7DO/giphy.gif" },
+];
+
+const fetchGiphyGifs = async (query = "") => {
+  giphyLoading.value = true;
+  try {
+    const q = query.trim();
+    const endpoint = q 
+      ? `https://api.giphy.com/v1/gifs/search?api_key=sXpGFDGZs0Dv1mmNFvYaGUvYwKX0PWIh&q=${encodeURIComponent(q)}&limit=24&rating=g`
+      : `https://api.giphy.com/v1/gifs/trending?api_key=sXpGFDGZs0Dv1mmNFvYaGUvYwKX0PWIh&limit=24&rating=g`;
+    
+    const resp = await fetch(endpoint);
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+        giphyResults.value = data.data.map((item: any) => ({
+          id: item.id,
+          title: item.title || "GIF",
+          preview: item.images?.fixed_height?.url || item.images?.downsized?.url || item.images?.original?.url,
+          original: item.images?.original?.url || item.images?.downsized?.url
+        }));
+      } else {
+        giphyResults.value = FALLBACK_GIFS.filter(g => !q || g.title.toLowerCase().includes(q.toLowerCase()));
+      }
+    } else {
+      giphyResults.value = FALLBACK_GIFS.filter(g => !q || g.title.toLowerCase().includes(q.toLowerCase()));
+    }
+  } catch (err) {
+    console.warn("Giphy API error, falling back to local list:", err);
+    const q = query.trim().toLowerCase();
+    giphyResults.value = FALLBACK_GIFS.filter(g => !q || g.title.toLowerCase().includes(q));
+  } finally {
+    giphyLoading.value = false;
+  }
+};
+
+let giphyDebounceTimer: any = null;
+watch(giphySearchQuery, (newVal) => {
+  clearTimeout(giphyDebounceTimer);
+  giphyDebounceTimer = setTimeout(() => {
+    fetchGiphyGifs(newVal);
+  }, 350);
+});
+
+const openGiphyModal = () => {
+  let range = null;
+  try {
+    range = quillInstance.value?.getSelection();
+  } catch (e) {
+    // ignore
+  }
+  lastGiphySelectionIndex.value = range ? range.index : (quillInstance.value?.getLength() || 1) - 1;
+  showGiphyModal.value = true;
+  if (giphyResults.value.length === 0) {
+    fetchGiphyGifs();
+  }
+};
+
+const selectGiphyGif = (url: string) => {
+  if (quillInstance.value) {
+    try {
+      quillInstance.value.focus();
+      quillInstance.value.insertEmbed(lastGiphySelectionIndex.value, "image", url);
+      quillInstance.value.setSelection(lastGiphySelectionIndex.value + 1, 0);
+    } catch (e) {
+      quillInstance.value.root.innerHTML += `<p><img src="${url}" /></p>`;
+    }
+  }
+  showGiphyModal.value = false;
+};
 
 watch(gallerySearchQuery, () => {
   galleryCurrentPage.value = 1;
@@ -572,17 +921,29 @@ const fetchPost = async () => {
             theme: "snow",
             modules: {
               imageResize: {},
-              toolbar: [
-                [{ header: [1, 2, 3, false] }],
-                ["bold", "italic", "underline", "strike"],
-                ["blockquote", "code-block"],
-                [{ list: "ordered" }, { list: "bullet" }],
-                [{ align: [] }],
-                ["link", "image"],
-                ["clean"],
-              ],
+              toolbar: {
+                container: [
+                  [{ font: ["", "sacramento", "cormorant-garamond", "serif", "monospace", "roboto"] }],
+                  [{ size: ["small", false, "large", "huge"] }],
+                  [{ header: [1, 2, 3, false] }],
+                  ["bold", "italic", "underline", "strike"],
+                  [{ color: [] }, { background: [] }],
+                  ["blockquote", "code-block"],
+                  [{ list: "ordered" }, { list: "bullet" }],
+                  [{ align: [] }],
+                  ["link", "image", "giphy"],
+                  ["clean"],
+                ],
+                handlers: {
+                  giphy: () => {
+                    openGiphyModal();
+                  }
+                }
+              },
             },
           });
+          
+          quillInstance.value.root.setAttribute("spellcheck", "true");
           
           // Custom image handler to open our S3 gallery
           quillInstance.value.getModule("toolbar").addHandler("image", () => {
@@ -686,5 +1047,72 @@ onMounted(async () => {
 .dark .ql-snow .ql-picker-options {
   background-color: #1e293b;
   border-color: #334155;
+}
+
+/* Custom Quill Fonts */
+.ql-snow .ql-picker.ql-font .ql-picker-label[data-value="sacramento"]::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="sacramento"]::before {
+  content: 'Sacramento';
+  font-family: 'Sacramento', cursive;
+}
+.ql-font-sacramento {
+  font-family: 'Sacramento', cursive;
+}
+
+.ql-snow .ql-picker.ql-font .ql-picker-label[data-value="cormorant-garamond"]::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="cormorant-garamond"]::before {
+  content: 'Cormorant';
+  font-family: 'Cormorant Garamond', serif;
+}
+.ql-font-cormorant-garamond {
+  font-family: 'Cormorant Garamond', serif;
+}
+
+.ql-snow .ql-picker.ql-font .ql-picker-label[data-value="serif"]::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="serif"]::before {
+  content: 'Serif';
+  font-family: Georgia, Times New Roman, serif;
+}
+.ql-font-serif {
+  font-family: Georgia, Times New Roman, serif;
+}
+
+.ql-snow .ql-picker.ql-font .ql-picker-label[data-value="monospace"]::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="monospace"]::before {
+  content: 'Monospace';
+  font-family: Monaco, Courier New, monospace;
+}
+.ql-font-monospace {
+  font-family: Monaco, Courier New, monospace;
+}
+
+.ql-snow .ql-picker.ql-font .ql-picker-label[data-value="roboto"]::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="roboto"]::before {
+  content: 'Roboto';
+  font-family: 'Roboto', sans-serif;
+}
+.ql-font-roboto {
+  font-family: 'Roboto', sans-serif;
+}
+
+/* Custom Giphy Toolbar Button */
+.ql-snow button.ql-giphy {
+  width: 28px !important;
+  font-weight: 900 !important;
+  font-size: 10px !important;
+  position: relative;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.ql-snow button.ql-giphy::after {
+  content: 'GIF';
+  font-size: 9px;
+  font-weight: 900;
+  background: linear-gradient(135deg, #ec4899, #8b5cf6);
+  color: white;
+  padding: 1px 4px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
 }
 </style>

@@ -10,6 +10,8 @@ export interface CMSSettings {
   postmarkApiToken?: string;
   postmarkFromEmail?: string;
   postmarkNotifyOnOrder?: boolean;
+  postmarkNotifyStaffOnOrder?: boolean;
+  adminNotificationEmails?: string;
   navbarLogo?: string;
   navbarLinks?: Array<{ label: string; url: string }>;
   footerText?: string;
@@ -181,3 +183,78 @@ export interface AnalyticsEventPayload {
   countryCode?: string;
   conversionName?: string;
 }
+
+export type ExtensionPermission = 
+  | 'storage:upload'
+  | 'store:orders:read'
+  | 'email:send'
+  | 'ui:designer:block'
+  | 'routes:public';
+
+export interface ExtensionManifest {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  permissions: ExtensionPermission[];
+  homepage?: string;
+  repository?: string;
+  widgets?: Array<{
+    id: string;
+    label: string;
+    icon?: string;
+    description?: string;
+  }>;
+  routes?: Array<{
+    path: string;
+    title: string;
+  }>;
+}
+
+export interface CMSExtension {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  gitUrl: string;
+  commitHash?: string;
+  enabled: boolean;
+  permissions: ExtensionPermission[];
+  manifest: ExtensionManifest;
+  settings?: Record<string, any>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type EbookFormat = 'epub' | 'pdf' | 'mobi' | 'azw3';
+
+export interface EbookFile {
+  id: string;
+  productId: string;
+  format: EbookFormat;
+  fileUrl: string;
+  fileName: string;
+  fileSizeBytes: number;
+  createdAt?: string;
+}
+
+export interface EbookDistribution {
+  id: string;
+  token: string;
+  type: 'purchase' | 'free_copy' | 'offline_card';
+  code?: string;
+  productId: string;
+  productTitle?: string;
+  recipientName?: string;
+  recipientEmail?: string;
+  message?: string;
+  maxDownloads: number;
+  downloadCount: number;
+  isRedeemed: boolean;
+  redeemedAt?: string;
+  expiresAt?: string;
+  createdAt?: string;
+}
+

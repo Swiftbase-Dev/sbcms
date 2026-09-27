@@ -1,7 +1,11 @@
 <template>
-  <div class="drawer lg:drawer-open min-h-screen">
+  <div v-if="isPublicRoute" class="min-h-screen">
+    <router-view></router-view>
+  </div>
+  <div v-else class="drawer lg:drawer-open min-h-screen">
     <input id="admin-drawer" type="checkbox" class="drawer-toggle" />
     <div class="drawer-content flex flex-col w-full overflow-x-hidden">
+
       <!-- Navbar (Mobile header) -->
       <div class="w-full navbar bg-slate-900 text-white lg:hidden shadow-md px-4" v-if="!isDesignerRoute">
         <div class="flex-none">
@@ -84,11 +88,18 @@
               </router-link>
             </li>
             <li>
+              <router-link to="/extensions" class="flex items-center rounded-xl hover:bg-white/5 transition-all duration-300" :class="[isCollapsed ? 'p-3 justify-center tooltip tooltip-right z-30' : 'gap-4 p-3']" :data-tip="isCollapsed ? 'Extensions' : null" active-class="!bg-primary !text-white shadow-lg shadow-primary/20">
+                <font-awesome-icon :icon="['fas', 'puzzle-piece']" class="w-5 h-5 shrink-0" />
+                <span v-if="!isCollapsed">Extensions</span>
+              </router-link>
+            </li>
+            <li>
               <router-link to="/settings" class="flex items-center rounded-xl hover:bg-white/5 transition-all duration-300" :class="[isCollapsed ? 'p-3 justify-center tooltip tooltip-right z-30' : 'gap-4 p-3']" :data-tip="isCollapsed ? 'Settings' : null" active-class="!bg-primary !text-white shadow-lg shadow-primary/20">
                 <font-awesome-icon :icon="['fas', 'gear']" class="w-5 h-5 shrink-0" />
                 <span v-if="!isCollapsed">Settings</span>
               </router-link>
             </li>
+
           </ul>
         </div>
         
@@ -193,6 +204,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { logout } from "swiftbase-sdk";
 
 const router = useRouter();
 
@@ -203,6 +215,11 @@ const isCollapsed = ref(localStorage.getItem("cms-sidebar-collapsed") === "true"
 const isDesignerRoute = computed(() => {
   return route.path.includes("/pages/edit/") || route.path.includes("/settings/edit-");
 });
+
+const isPublicRoute = computed(() => {
+  return route.path.startsWith("/download") || route.path.startsWith("/redeem");
+});
+
 
 const toggleCollapse = () => {
   isCollapsed.value = !isCollapsed.value;
@@ -280,10 +297,10 @@ const fetchProfile = async () => {
 const handleLogout = async () => {
   if (confirm("Are you sure you want to sign out of SBCMS?")) {
     try {
-      await fetch("/api/logout", { method: "POST" });
-      window.location.reload();
+      await logout();
     } catch (err) {
       console.error("Logout failed:", err);
+      window.location.href = "/admin/";
     }
   }
 };

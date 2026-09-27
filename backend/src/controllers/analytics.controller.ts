@@ -13,7 +13,6 @@ export function registerAnalyticsRoutes(app: FastifyInstance) {
       
       const newEvent = {
         id: `evt-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        projectId: "swiftbase",
         path: body.path || "/",
         referrer: body.referrer || "",
         browser: body.browser || "Unknown",

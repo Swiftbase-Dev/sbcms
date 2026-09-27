@@ -307,6 +307,20 @@
             </div>
             <input type="checkbox" class="toggle toggle-primary" v-model="settings.postmarkNotifyOnOrder" />
           </div>
+
+          <div class="form-control flex-row items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/40 border border-base-200 rounded-2xl mt-2">
+            <div>
+              <span class="font-bold text-xs">Notify Project Users & Staff on New Orders</span>
+              <p class="text-[11px] opacity-50">Send an instant alert email with order summary and customer details to all project users when a purchase is completed.</p>
+            </div>
+            <input type="checkbox" class="toggle toggle-primary" v-model="settings.postmarkNotifyStaffOnOrder" />
+          </div>
+
+          <div class="form-control" v-if="settings.postmarkNotifyStaffOnOrder !== false">
+            <label class="label font-bold text-xs uppercase text-slate-400">Additional Notification Emails (Optional)</label>
+            <input type="text" v-model="settings.adminNotificationEmails" placeholder="e.g. orders@domain.com, staff@domain.com" class="input input-bordered rounded-xl w-full text-xs" />
+            <span class="text-[10px] opacity-40 mt-1">Comma-separated email addresses to notify in addition to project users.</span>
+          </div>
         </div>
 
         <!-- Comments Moderation Tab -->
@@ -430,6 +444,8 @@ const settings = ref<CMSSettings>({
   postmarkApiToken: "",
   postmarkFromEmail: "",
   postmarkNotifyOnOrder: true,
+  postmarkNotifyStaffOnOrder: true,
+  adminNotificationEmails: "",
   navbarLogo: "",
   navbarLinks: [],
   footerText: "",

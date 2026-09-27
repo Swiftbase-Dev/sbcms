@@ -80,9 +80,9 @@ Open your browser and navigate to:
 SBCMS is designed to be containerized and run as a Swiftbase hosted app.
 
 ### 1. Build the Docker Image
-To compile the multi-stage Docker build, run the build command from the **repository root directory** (one directory above `cms/` so that the local SDK directories can be resolved):
+To compile the multi-stage Docker build, run the build command from inside the `cms/` subdirectory:
 ```bash
-docker build -t sbcms -f cms/Dockerfile .
+docker buildx build --platform linux/arm64,linux/amd64 -t sbcms . --load
 ```
 
 ### 2. Run Container Locally

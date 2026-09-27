@@ -428,8 +428,170 @@
                 </div>
               </div>
 
+              <!-- Store Products Widget Settings -->
+              <div v-if="selectedBlock.type === 'products-widget'" class="space-y-4 p-3 bg-slate-50 dark:bg-slate-850 border border-base-200 dark:border-slate-800 rounded-2xl">
+                <div class="flex items-center gap-1.5 pb-1 border-b border-base-200 dark:border-slate-800">
+                  <font-awesome-icon :icon="['fas', 'cart-shopping']" class="w-3 h-3 text-primary" />
+                  <span class="text-[10px] font-black uppercase tracking-wider text-slate-500">Products Catalog Widget</span>
+                </div>
+
+                <div class="form-control">
+                  <label class="label p-0 pb-1">
+                    <span class="label-text text-[10px] font-black uppercase opacity-40">Max Products to Show</span>
+                  </label>
+                  <input
+                    type="number"
+                    v-model="selectedBlock.attributes.limit"
+                    class="input input-bordered text-xs rounded-xl w-full focus:outline-none dark:bg-slate-800"
+                    placeholder="e.g. 6"
+                    min="1"
+                    max="100"
+                  />
+                </div>
+
+                <!-- Hidden Default Filters (Never shown to end visitors) -->
+                <div class="p-3 bg-primary/5 border border-primary/20 rounded-xl space-y-2.5">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[9px] font-black uppercase tracking-wider text-primary">Hidden Default Filter</span>
+                    <span class="badge badge-xs badge-primary font-bold text-[8px]">Enforced Server-Side</span>
+                  </div>
+                  <p class="text-[10px] opacity-60 leading-tight">Restrict this widget to specific items. Visitors cannot see or clear this filter.</p>
+                  
+                  <div class="form-control">
+                    <label class="label p-0 pb-1">
+                      <span class="label-text text-[9px] font-bold uppercase opacity-60">Locked Category</span>
+                    </label>
+                    <input
+                      type="text"
+                      v-model="selectedBlock.attributes.defaultCategory"
+                      class="input input-bordered input-sm text-xs rounded-lg w-full focus:outline-none dark:bg-slate-800 font-bold"
+                      placeholder="e.g. Books"
+                    />
+                    <span class="text-[9px] opacity-40 mt-0.5">Show only products in this category.</span>
+                  </div>
+
+                  <div class="form-control">
+                    <label class="label p-0 pb-1">
+                      <span class="label-text text-[9px] font-bold uppercase opacity-60">Excluded Category</span>
+                    </label>
+                    <input
+                      type="text"
+                      v-model="selectedBlock.attributes.excludeCategory"
+                      class="input input-bordered input-sm text-xs rounded-lg w-full focus:outline-none dark:bg-slate-800 font-bold"
+                      placeholder="e.g. Books"
+                    />
+                    <span class="text-[9px] opacity-40 mt-0.5">Hide products matching this category (e.g. "Books").</span>
+                  </div>
+
+                  <label class="label cursor-pointer justify-start gap-2 p-0 pt-1">
+                    <input 
+                      type="checkbox" 
+                      v-model="selectedBlock.attributes.defaultInStockOnly" 
+                      :true-value="'true'"
+                      :false-value="'false'"
+                      class="checkbox checkbox-primary checkbox-xs rounded" 
+                    />
+                    <span class="label-text text-[10px] font-bold">Only Show In-Stock Items</span>
+                  </label>
+                </div>
+
+                <!-- Visitor Search and Filters Controls -->
+                <div class="space-y-2 pt-1 border-t border-base-200 dark:border-slate-800">
+                  <span class="text-[9px] font-black uppercase tracking-wider opacity-40">Visitor Filter Bar</span>
+                  <label class="label cursor-pointer justify-start gap-2 p-0">
+                    <input 
+                      type="checkbox" 
+                      v-model="selectedBlock.attributes.showSearch" 
+                      :true-value="'true'"
+                      :false-value="'false'"
+                      class="checkbox checkbox-xs rounded" 
+                    />
+                    <span class="label-text text-[10px]">Show Search Bar to Visitors</span>
+                  </label>
+                  <label class="label cursor-pointer justify-start gap-2 p-0">
+                    <input 
+                      type="checkbox" 
+                      v-model="selectedBlock.attributes.showCategories" 
+                      :true-value="'true'"
+                      :false-value="'false'"
+                      class="checkbox checkbox-xs rounded" 
+                    />
+                    <span class="label-text text-[10px]">Show Category Buttons to Visitors</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- E-book Preview Widget Settings -->
+              <div v-if="selectedBlock.type === 'ebook-preview-widget'" class="space-y-4 p-3 bg-slate-50 dark:bg-slate-850 border border-base-200 dark:border-slate-800 rounded-2xl">
+                <div class="flex items-center gap-1.5 pb-1 border-b border-base-200 dark:border-slate-800">
+                  <font-awesome-icon :icon="['fas', 'book-open']" class="w-3 h-3 text-primary" />
+                  <span class="text-[10px] font-black uppercase tracking-wider text-slate-500">E-book Preview Settings</span>
+                </div>
+
+                <div class="form-control">
+                  <label class="label p-0 pb-1">
+                    <span class="label-text text-[10px] font-black uppercase opacity-40">Book Title</span>
+                  </label>
+                  <input
+                    type="text"
+                    v-model="selectedBlock.attributes['data-book-title']"
+                    class="input input-bordered input-sm text-xs rounded-xl w-full dark:bg-slate-800"
+                    placeholder="e.g. The Quantum Horizon"
+                  />
+                </div>
+
+                <div class="form-control">
+                  <label class="label p-0 pb-1">
+                    <span class="label-text text-[10px] font-black uppercase opacity-40">Author</span>
+                  </label>
+                  <input
+                    type="text"
+                    v-model="selectedBlock.attributes['data-author']"
+                    class="input input-bordered input-sm text-xs rounded-xl w-full dark:bg-slate-800"
+                    placeholder="e.g. Jane Doe"
+                  />
+                </div>
+
+                <div class="form-control">
+                  <label class="label p-0 pb-1">
+                    <span class="label-text text-[10px] font-black uppercase opacity-40">Cover Image URL</span>
+                  </label>
+                  <input
+                    type="text"
+                    v-model="selectedBlock.attributes['data-cover-image']"
+                    class="input input-bordered input-sm text-xs rounded-xl w-full dark:bg-slate-800"
+                    placeholder="https://.../cover.jpg"
+                  />
+                </div>
+
+                <div class="form-control">
+                  <label class="label p-0 pb-1">
+                    <span class="label-text text-[10px] font-black uppercase opacity-40">Sample Text Excerpt</span>
+                  </label>
+                  <textarea
+                    v-model="selectedBlock.attributes['data-sample-content']"
+                    rows="4"
+                    class="textarea textarea-bordered text-xs rounded-xl w-full dark:bg-slate-800"
+                    placeholder="Enter chapter text or sample excerpt..."
+                  ></textarea>
+                </div>
+
+                <div class="form-control">
+                  <label class="label p-0 pb-1">
+                    <span class="label-text text-[10px] font-black uppercase opacity-40">Link to Store Product (Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    v-model="selectedBlock.attributes['data-product-id']"
+                    class="input input-bordered input-sm text-xs rounded-xl w-full dark:bg-slate-800"
+                    placeholder="Product ID for purchase button"
+                  />
+                </div>
+              </div>
+
               <!-- Input Fields Validation and Details -->
               <div v-if="['input', 'textarea', 'select'].includes(selectedBlock.tagName) || ['input', 'textarea', 'select', 'range'].includes(selectedBlock.type)" class="space-y-3">
+
                 <div class="form-control" v-if="selectedBlock.tagName === 'input'">
                   <label class="label p-0 pb-1">
                     <span class="label-text text-[10px] font-black uppercase opacity-40">Input Field Type</span>
@@ -1709,13 +1871,14 @@ const openGalleryPicker = async (target: "bgImage" | "imageBlock") => {
 
 const selectAsset = (url: string) => {
   if (!selectedBlock.value) return;
+  const cacheBustedUrl = `${url}?v=${Date.now()}`;
   if (galleryPickerTarget.value === "bgImage") {
     selectedBlock.value.styles = selectedBlock.value.styles || {};
-    selectedBlock.value.styles["background-image"] = `url('${url}')`;
+    selectedBlock.value.styles["background-image"] = `url('${cacheBustedUrl}')`;
     selectedBlock.value.styles["background-repeat"] = "no-repeat";
   } else if (galleryPickerTarget.value === "imageBlock") {
     selectedBlock.value.attributes = selectedBlock.value.attributes || {};
-    selectedBlock.value.attributes.src = url;
+    selectedBlock.value.attributes.src = cacheBustedUrl;
   }
   saveHistoryState();
   showGalleryModal.value = false;
@@ -1861,10 +2024,47 @@ const categories = computed(() => [
           },
           children: []
         }
+      },
+      ...(settings.value?.isStoreEnabled ? [{
+        id: "products-widget",
+        label: "Store Products",
+        icon: ["fas", "cart-shopping"],
+        template: {
+          type: "products-widget",
+          tagName: "div",
+          classes: ["cms-products-widget", "py-8", "space-y-6"],
+          attributes: {
+            limit: "6",
+            defaultCategory: "",
+            defaultInStockOnly: "false",
+            showSearch: "true",
+            showCategories: "true"
+          },
+          children: []
+        }
+      }] : []),
+      {
+        id: "ebook-preview-widget",
+        label: "E-book Sample Preview",
+        icon: ["fas", "book-open"],
+        template: {
+          type: "ebook-preview-widget",
+          tagName: "div",
+          classes: ["cms-ebook-preview-widget", "my-8"],
+          attributes: {
+            "data-book-title": "Sample Book Preview",
+            "data-author": "Author Name",
+            "data-cover-image": "",
+            "data-sample-content": "Chapter 1: The Beginning\n\nThe morning mist hung low over the quiet valley as the ancient library doors slowly creaked open. Inside, rows upon rows of forgotten tales waited in silence...",
+            "data-product-id": ""
+          },
+          children: []
+        }
       }
     ]
   }
 ]);
+
 
 // Fetch parameters
 const fetchSettings = async () => {
@@ -1979,6 +2179,24 @@ function parseHtmlToBlocks(htmlString: string): any[] {
     else if (classes.includes("grid") || classes.includes("flex")) type = "row";
     else if (classes.includes("flex-1") || classes.includes("col-span")) type = "column";
     else if (classes.includes("recent-posts-block")) type = "recent-posts";
+    else if (classes.includes("cms-products-widget")) {
+      type = "products-widget";
+      if (attributes["data-limit"]) attributes.limit = attributes["data-limit"];
+      if (attributes["data-default-category"]) attributes.defaultCategory = attributes["data-default-category"];
+      if (attributes["data-exclude-category"]) attributes.excludeCategory = attributes["data-exclude-category"];
+      if (attributes["data-default-instock"]) attributes.defaultInStockOnly = attributes["data-default-instock"];
+      if (attributes["data-show-search"]) attributes.showSearch = attributes["data-show-search"];
+      if (attributes["data-show-categories"]) attributes.showCategories = attributes["data-show-categories"];
+    }
+    else if (classes.includes("cms-ebook-preview-widget")) {
+      type = "ebook-preview-widget";
+      if (attributes["data-sample-content"]) {
+        try {
+          attributes["data-sample-content"] = decodeURIComponent(attributes["data-sample-content"]);
+        } catch {}
+      }
+    }
+
 
     const children: any[] = [];
     let content = "";
@@ -2050,6 +2268,43 @@ function generateCleanHtml(blockList: any[]): string {
       }
       return `${indent}<div class="${classes} recent-posts-block"${styleAttr} data-limit="${limit}" data-tags="${tags}"></div>\n`;
     }
+
+    if (block.type === 'products-widget') {
+      const limit = block.attributes?.limit || "6";
+      const defaultCategory = block.attributes?.defaultCategory || "";
+      const excludeCategory = block.attributes?.excludeCategory || "";
+      const defaultInStockOnly = block.attributes?.defaultInStockOnly === "true" ? "true" : "false";
+      const showSearch = block.attributes?.showSearch !== "false" ? "true" : "false";
+      const showCategories = block.attributes?.showCategories !== "false" ? "true" : "false";
+      let widgetClasses = classes;
+      if (!widgetClasses.includes("cms-products-widget")) {
+        widgetClasses = (widgetClasses + " cms-products-widget").trim();
+      }
+      let styleAttr = "";
+      if (block.styles && Object.keys(block.styles).length > 0) {
+        const stylesStr = Object.entries(block.styles)
+          .map(([key, val]) => `${key}: ${val};`)
+          .join(" ");
+        styleAttr = ` style="${stylesStr}"`;
+      }
+      const excludeAttr = excludeCategory ? ` data-exclude-category="${excludeCategory}"` : "";
+      return `${indent}<div class="${widgetClasses}"${styleAttr} data-limit="${limit}" data-default-category="${defaultCategory}"${excludeAttr} data-default-instock="${defaultInStockOnly}" data-show-search="${showSearch}" data-show-categories="${showCategories}"></div>\n`;
+    }
+
+    if (block.type === 'ebook-preview-widget') {
+      const bookTitle = block.attributes?.['data-book-title'] || "Sample Book Title";
+      const author = block.attributes?.['data-author'] || "Author Name";
+      const coverImage = block.attributes?.['data-cover-image'] || "";
+      const productId = block.attributes?.['data-product-id'] || "";
+      const sample = block.attributes?.['data-sample-content'] || "Chapter 1: The Beginning\n\nSample preview text...";
+      const encodedSample = encodeURIComponent(sample);
+      let widgetClasses = classes;
+      if (!widgetClasses.includes("cms-ebook-preview-widget")) {
+        widgetClasses = (widgetClasses + " cms-ebook-preview-widget").trim();
+      }
+      return `${indent}<div class="${widgetClasses}" data-book-title="${bookTitle}" data-author="${author}" data-cover-image="${coverImage}" data-product-id="${productId}" data-sample-content="${encodedSample}"></div>\n`;
+    }
+
 
     if (block.tagName === 'img') {
       return `${indent}<img${classAttr}${attrs} />\n`;

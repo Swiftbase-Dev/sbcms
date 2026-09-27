@@ -9,12 +9,15 @@ import { initializeSdk, login, db, Storage } from "swiftbase-admin-sdk";
 
 import { registerPageRoutes } from "./controllers/page.controller.js";
 import { registerBlogRoutes, rebuildBlogSite } from "./controllers/blog.controller.js";
-import { registerStoreRoutes, rebuildStoreSite } from "./controllers/store.controller.js";
+import { registerStoreRoutes, rebuildStoreSite, renderCheckoutSuccessHtml } from "./controllers/store.controller.js";
 import { registerAnalyticsRoutes } from "./controllers/analytics.controller.js";
 import { registerAIRoutes } from "./controllers/ai.controller.js";
 import { registerAssetRoutes } from "./controllers/assets.controller.js";
 import { registerSearchRoutes } from "./controllers/search.controller.js";
 import { registerCommentRoutes } from "./controllers/comments.controller.js";
+import { registerExtensionRoutes } from "./controllers/extension.controller.js";
+import { registerEbookRoutes } from "./controllers/ebook.controller.js";
+
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -64,6 +67,8 @@ async function start() {
             "postmarkApiToken" VARCHAR(255),
             "postmarkFromEmail" VARCHAR(255),
             "postmarkNotifyOnOrder" BOOLEAN DEFAULT true,
+            "postmarkNotifyStaffOnOrder" BOOLEAN DEFAULT true,
+            "adminNotificationEmails" TEXT,
             "navbarLogo" VARCHAR(255),
             "navbarLinks" JSONB,
             "footerText" VARCHAR(255),
@@ -182,7 +187,6 @@ async function start() {
           name: 'CMS Analytics Events',
           ddl: `CREATE TABLE IF NOT EXISTS "cms_analytics_events" (
             "id" VARCHAR(255) PRIMARY KEY,
-            "projectId" VARCHAR(255),
             "path" VARCHAR(255),
             "referrer" VARCHAR(255),
             "browser" VARCHAR(255),
@@ -210,8 +214,62 @@ async function start() {
             "createdAt" VARCHAR(255),
             "updatedAt" VARCHAR(255)
           )`
+        },
+        {
+          dbname: 'cms_extensions',
+          name: 'CMS Extensions',
+          ddl: `CREATE TABLE IF NOT EXISTS "cms_extensions" (
+            "id" VARCHAR(255) PRIMARY KEY,
+            "name" VARCHAR(255),
+            "version" VARCHAR(50),
+            "description" TEXT,
+            "author" VARCHAR(255),
+            "gitUrl" VARCHAR(500),
+            "commitHash" VARCHAR(100),
+            "enabled" BOOLEAN DEFAULT true,
+            "permissions" JSONB,
+            "manifest" JSONB,
+            "settings" JSONB,
+            "createdAt" VARCHAR(255),
+            "updatedAt" VARCHAR(255)
+          )`
+        },
+        {
+          dbname: 'cms_ebook_files',
+          name: 'CMS Ebook Files',
+          ddl: `CREATE TABLE IF NOT EXISTS "cms_ebook_files" (
+            "id" VARCHAR(255) PRIMARY KEY,
+            "productId" VARCHAR(255),
+            "format" VARCHAR(50),
+            "fileUrl" VARCHAR(500),
+            "fileName" VARCHAR(255),
+            "fileSizeBytes" INTEGER,
+            "createdAt" VARCHAR(255)
+          )`
+        },
+        {
+          dbname: 'cms_ebook_distributions',
+          name: 'CMS Ebook Distributions',
+          ddl: `CREATE TABLE IF NOT EXISTS "cms_ebook_distributions" (
+            "id" VARCHAR(255) PRIMARY KEY,
+            "token" VARCHAR(255) UNIQUE,
+            "type" VARCHAR(50),
+            "code" VARCHAR(100),
+            "productId" VARCHAR(255),
+            "productTitle" VARCHAR(255),
+            "recipientName" VARCHAR(255),
+            "recipientEmail" VARCHAR(255),
+            "message" TEXT,
+            "maxDownloads" INTEGER DEFAULT 5,
+            "downloadCount" INTEGER DEFAULT 0,
+            "isRedeemed" BOOLEAN DEFAULT false,
+            "redeemedAt" VARCHAR(255),
+            "expiresAt" VARCHAR(255),
+            "createdAt" VARCHAR(255)
+          )`
         }
       ];
+
 
       const database = db(dbName);
       if (typeof (database as any).initializeDatabase === "function") {
@@ -231,32 +289,45 @@ async function start() {
         // Ensure siteDomain and appearance columns are present in pre-existing tables
         try {
           if (typeof (database as any).executeSQL === "function") {
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "siteDomain" VARCHAR(255)`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "navbarLogo" VARCHAR(255)`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "navbarLinks" JSONB`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "footerText" VARCHAR(255)`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "footerLinks" JSONB`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "faviconUrl" VARCHAR(255)`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "globalStyles" TEXT`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "navbarHtml" TEXT`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "navbarCss" TEXT`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "navbarComponents" JSONB`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "navbarStyles" JSONB`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "footerHtml" TEXT`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "footerCss" TEXT`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "footerComponents" JSONB`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "footerStyles" JSONB`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "areCommentsEnabledGlobally" BOOLEAN DEFAULT true`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "postmarkApiToken" VARCHAR(255)`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "postmarkFromEmail" VARCHAR(255)`);
-            await (database as any).executeSQL(`ALTER TABLE "cms_settings" ADD COLUMN IF NOT EXISTS "postmarkNotifyOnOrder" BOOLEAN DEFAULT true`);
+            const safeAddColumn = async (table: string, column: string, typeDef: string) => {
+              try {
+                await (database as any).executeSQL(`ALTER TABLE "${table}" ADD COLUMN "${column}" ${typeDef}`);
+              } catch (colErr: any) {
+                // Ignore "duplicate column name" error in SQLite
+                if (!colErr.message?.includes("duplicate column name")) {
+                  app.log.warn(`Column migration warning for ${table}.${column}: ${colErr.message}`);
+                }
+              }
+            };
+
+            await safeAddColumn("cms_settings", "siteDomain", "VARCHAR(255)");
+            await safeAddColumn("cms_settings", "navbarLogo", "VARCHAR(255)");
+            await safeAddColumn("cms_settings", "navbarLinks", "JSONB");
+            await safeAddColumn("cms_settings", "footerText", "VARCHAR(255)");
+            await safeAddColumn("cms_settings", "footerLinks", "JSONB");
+            await safeAddColumn("cms_settings", "faviconUrl", "VARCHAR(255)");
+            await safeAddColumn("cms_settings", "globalStyles", "TEXT");
+            await safeAddColumn("cms_settings", "navbarHtml", "TEXT");
+            await safeAddColumn("cms_settings", "navbarCss", "TEXT");
+            await safeAddColumn("cms_settings", "navbarComponents", "JSONB");
+            await safeAddColumn("cms_settings", "navbarStyles", "JSONB");
+            await safeAddColumn("cms_settings", "footerHtml", "TEXT");
+            await safeAddColumn("cms_settings", "footerCss", "TEXT");
+            await safeAddColumn("cms_settings", "footerComponents", "JSONB");
+            await safeAddColumn("cms_settings", "footerStyles", "JSONB");
+            await safeAddColumn("cms_settings", "areCommentsEnabledGlobally", "BOOLEAN DEFAULT true");
+            await safeAddColumn("cms_settings", "postmarkApiToken", "VARCHAR(255)");
+            await safeAddColumn("cms_settings", "postmarkFromEmail", "VARCHAR(255)");
+            await safeAddColumn("cms_settings", "postmarkNotifyOnOrder", "BOOLEAN DEFAULT true");
+            await safeAddColumn("cms_settings", "postmarkNotifyStaffOnOrder", "BOOLEAN DEFAULT true");
+            await safeAddColumn("cms_settings", "adminNotificationEmails", "TEXT");
             app.log.info("Migrated cms_settings to include siteDomain, appearance, global layout, comments, and Postmark columns.");
             
             // Migrate cms_analytics_events fields if table already existed without new parameters
             try {
-              await (database as any).executeSQL(`ALTER TABLE "cms_analytics_events" ADD COLUMN IF NOT EXISTS "countryCode" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_analytics_events" ADD COLUMN IF NOT EXISTS "conversionName" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_analytics_events" ADD COLUMN IF NOT EXISTS "timestamp" VARCHAR(255)`);
+              await safeAddColumn("cms_analytics_events", "countryCode", "VARCHAR(255)");
+              await safeAddColumn("cms_analytics_events", "conversionName", "VARCHAR(255)");
+              await safeAddColumn("cms_analytics_events", "timestamp", "VARCHAR(255)");
               app.log.info("Migrated cms_analytics_events schema to include countryCode, conversionName, and timestamp columns.");
             } catch (aErr: any) {
               app.log.warn(`Analytics table migration warning: ${aErr.message}`);
@@ -264,18 +335,18 @@ async function start() {
 
             // Rename/add columns to support replacement of GrapesJS & ensure full schema
             try {
-              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "projectId" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "slug" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "title" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "layoutHtml" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "layoutCss" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "layoutComponents" JSONB`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "layoutStyles" JSONB`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "seoMetadata" JSONB`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "isPublished" BOOLEAN DEFAULT false`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "hasUnpublishedChanges" BOOLEAN DEFAULT false`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "createdAt" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_pages" ADD COLUMN IF NOT EXISTS "updatedAt" VARCHAR(255)`);
+              await safeAddColumn("cms_pages", "projectId", "VARCHAR(255)");
+              await safeAddColumn("cms_pages", "slug", "VARCHAR(255)");
+              await safeAddColumn("cms_pages", "title", "VARCHAR(255)");
+              await safeAddColumn("cms_pages", "layoutHtml", "TEXT");
+              await safeAddColumn("cms_pages", "layoutCss", "TEXT");
+              await safeAddColumn("cms_pages", "layoutComponents", "JSONB");
+              await safeAddColumn("cms_pages", "layoutStyles", "JSONB");
+              await safeAddColumn("cms_pages", "seoMetadata", "JSONB");
+              await safeAddColumn("cms_pages", "isPublished", "BOOLEAN DEFAULT false");
+              await safeAddColumn("cms_pages", "hasUnpublishedChanges", "BOOLEAN DEFAULT false");
+              await safeAddColumn("cms_pages", "createdAt", "VARCHAR(255)");
+              await safeAddColumn("cms_pages", "updatedAt", "VARCHAR(255)");
 
               // Migrate existing legacy data securely if present
               await (database as any).executeSQL(`
@@ -293,17 +364,17 @@ async function start() {
             }
             // Migrate cms_posts to include tags TEXT column if table already existed
             try {
-              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "tags" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "hasUnpublishedChanges" BOOLEAN DEFAULT false`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "publishedTitle" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "publishedContent" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "publishedExcerpt" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "publishedTags" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "publishedFeatureImage" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "publishedSeoMetadata" JSONB`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "areCommentsEnabled" BOOLEAN DEFAULT true`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "author" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_posts" ADD COLUMN IF NOT EXISTS "publishedAuthor" VARCHAR(255)`);
+              await safeAddColumn("cms_posts", "tags", "TEXT");
+              await safeAddColumn("cms_posts", "hasUnpublishedChanges", "BOOLEAN DEFAULT false");
+              await safeAddColumn("cms_posts", "publishedTitle", "VARCHAR(255)");
+              await safeAddColumn("cms_posts", "publishedContent", "TEXT");
+              await safeAddColumn("cms_posts", "publishedExcerpt", "TEXT");
+              await safeAddColumn("cms_posts", "publishedTags", "TEXT");
+              await safeAddColumn("cms_posts", "publishedFeatureImage", "TEXT");
+              await safeAddColumn("cms_posts", "publishedSeoMetadata", "JSONB");
+              await safeAddColumn("cms_posts", "areCommentsEnabled", "BOOLEAN DEFAULT true");
+              await safeAddColumn("cms_posts", "author", "VARCHAR(255)");
+              await safeAddColumn("cms_posts", "publishedAuthor", "VARCHAR(255)");
               app.log.info("Migrated cms_posts schema to include tags, draft/published copy, comments, and author columns.");
             } catch (postErr: any) {
               app.log.warn(`Posts table column migration warning: ${postErr.message}`);
@@ -311,26 +382,26 @@ async function start() {
 
             // Migrate cms_products columns if table already existed
             try {
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "projectId" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "slug" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "name" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "description" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "priceCents" INTEGER`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "stripePriceId" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "stripeProductId" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "images" JSONB`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "affiliateLinks" JSONB`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "category" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "sku" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "inStock" BOOLEAN DEFAULT true`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "stockQuantity" INTEGER`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "limitPerOrder" INTEGER`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "customOrderFields" JSONB`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "isPhysical" BOOLEAN DEFAULT true`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "shippingDetails" JSONB`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "addOnProductIds" JSONB`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "createdAt" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_products" ADD COLUMN IF NOT EXISTS "updatedAt" VARCHAR(255)`);
+              await safeAddColumn("cms_products", "projectId", "VARCHAR(255)");
+              await safeAddColumn("cms_products", "slug", "VARCHAR(255)");
+              await safeAddColumn("cms_products", "name", "VARCHAR(255)");
+              await safeAddColumn("cms_products", "description", "TEXT");
+              await safeAddColumn("cms_products", "priceCents", "INTEGER");
+              await safeAddColumn("cms_products", "stripePriceId", "VARCHAR(255)");
+              await safeAddColumn("cms_products", "stripeProductId", "VARCHAR(255)");
+              await safeAddColumn("cms_products", "images", "JSONB");
+              await safeAddColumn("cms_products", "affiliateLinks", "JSONB");
+              await safeAddColumn("cms_products", "category", "VARCHAR(255)");
+              await safeAddColumn("cms_products", "sku", "VARCHAR(255)");
+              await safeAddColumn("cms_products", "inStock", "BOOLEAN DEFAULT true");
+              await safeAddColumn("cms_products", "stockQuantity", "INTEGER");
+              await safeAddColumn("cms_products", "limitPerOrder", "INTEGER");
+              await safeAddColumn("cms_products", "customOrderFields", "JSONB");
+              await safeAddColumn("cms_products", "isPhysical", "BOOLEAN DEFAULT true");
+              await safeAddColumn("cms_products", "shippingDetails", "JSONB");
+              await safeAddColumn("cms_products", "addOnProductIds", "JSONB");
+              await safeAddColumn("cms_products", "createdAt", "VARCHAR(255)");
+              await safeAddColumn("cms_products", "updatedAt", "VARCHAR(255)");
               app.log.info("Migrated cms_products schema to include extended product catalog fields.");
             } catch (prodErr: any) {
               app.log.warn(`Products table column migration warning: ${prodErr.message}`);
@@ -338,15 +409,23 @@ async function start() {
 
             // Migrate cms_purchases columns for order fulfillment and tracking
             try {
-              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "customerName" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "fulfillmentStatus" VARCHAR(50) DEFAULT 'unfulfilled'`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "trackingNumber" VARCHAR(255)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "carrier" VARCHAR(100)`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "trackingUrl" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "shippingAddress" JSONB`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "items" JSONB`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "notes" TEXT`);
-              await (database as any).executeSQL(`ALTER TABLE "cms_purchases" ADD COLUMN IF NOT EXISTS "shippedAt" VARCHAR(255)`);
+              await safeAddColumn("cms_purchases", "projectId", "VARCHAR(255)");
+              await safeAddColumn("cms_purchases", "productId", "VARCHAR(255)");
+              await safeAddColumn("cms_purchases", "stripeSessionId", "VARCHAR(255)");
+              await safeAddColumn("cms_purchases", "customerEmail", "VARCHAR(255)");
+              await safeAddColumn("cms_purchases", "customerName", "VARCHAR(255)");
+              await safeAddColumn("cms_purchases", "amountTotalCents", "INTEGER");
+              await safeAddColumn("cms_purchases", "status", "VARCHAR(50)");
+              await safeAddColumn("cms_purchases", "fulfillmentStatus", "VARCHAR(50) DEFAULT 'unfulfilled'");
+              await safeAddColumn("cms_purchases", "trackingNumber", "VARCHAR(255)");
+              await safeAddColumn("cms_purchases", "carrier", "VARCHAR(100)");
+              await safeAddColumn("cms_purchases", "trackingUrl", "TEXT");
+              await safeAddColumn("cms_purchases", "shippingAddress", "JSONB");
+              await safeAddColumn("cms_purchases", "items", "JSONB");
+              await safeAddColumn("cms_purchases", "notes", "TEXT");
+              await safeAddColumn("cms_purchases", "shippedAt", "VARCHAR(255)");
+              await safeAddColumn("cms_purchases", "createdAt", "VARCHAR(255)");
+              await safeAddColumn("cms_purchases", "updatedAt", "VARCHAR(255)");
               app.log.info("Migrated cms_purchases schema to include shipping address, tracking, and order items.");
             } catch (purchErr: any) {
               app.log.warn(`Purchases table column migration warning: ${purchErr.message}`);
@@ -627,6 +706,26 @@ async function start() {
     }
   });
 
+  app.get("/checkout/success", async (request: any, reply) => {
+    try {
+      const { session_id } = request.query || {};
+      const html = await renderCheckoutSuccessHtml(session_id);
+      reply.header("Content-Type", "text/html");
+      return reply.send(html);
+    } catch (err: any) {
+      request.log.error(`Checkout success page render error: ${err.message}`);
+      return reply.code(500).send("Unable to render checkout confirmation.");
+    }
+  });
+
+  app.get("/download/:token", async (request, reply) => {
+    return reply.sendFile("index.html");
+  });
+
+  app.get("/redeem", async (request, reply) => {
+    return reply.sendFile("index.html");
+  });
+
   app.get("/admin", async (request, reply) => {
     return reply.redirect("/admin/");
   });
@@ -636,7 +735,7 @@ async function start() {
     if (slug === "admin") {
       return reply.redirect("/admin/");
     }
-    if (slug === "api" || slug === "blog" || slug === "store") {
+    if (slug === "api" || slug === "blog" || slug === "store" || slug === "checkout" || slug === "download" || slug === "redeem") {
       return reply.code(404).send({ error: "Not Found" });
     }
     return servePage(request, reply, slug);
@@ -647,7 +746,7 @@ async function start() {
     if (request.url.startsWith("/api")) {
       return reply.code(404).send({ error: "API Route Not Found" });
     }
-    if (request.url.startsWith("/admin")) {
+    if (request.url.startsWith("/admin") || request.url.startsWith("/download") || request.url.startsWith("/redeem")) {
       return reply.sendFile("index.html");
     }
     return reply.code(404).send({ error: "Not Found" });
@@ -663,7 +762,10 @@ async function start() {
     registerAssetRoutes(api);
     registerSearchRoutes(api);
     registerCommentRoutes(api);
+    registerExtensionRoutes(api);
+    registerEbookRoutes(api);
   }, { prefix: "/api", bodyLimit: 52428800 });
+
 
   // 5. Start Listening
   const port = parseInt(process.env.PORT || "3000", 10);

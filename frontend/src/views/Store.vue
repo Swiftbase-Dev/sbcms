@@ -82,9 +82,15 @@
 
       <div v-else class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         <div v-for="product in paginatedProducts" :key="product.id" class="card bg-white dark:bg-slate-900 border border-base-200 rounded-3xl shadow-xl overflow-hidden hover:shadow-2xl transition-all duration-300 flex flex-col justify-between">
-          <div class="relative h-48 bg-slate-100 dark:bg-slate-800 shrink-0">
-            <img v-if="product.images && product.images.length > 0" :src="product.images[0]" class="w-full h-full object-cover" />
+          <div class="group relative h-52 bg-slate-100 dark:bg-slate-800 shrink-0 cursor-pointer overflow-hidden" @click="product.images && product.images.length > 0 ? openCoverViewer(product.images[0], product.name) : null" title="Click to view full cover">
+            <img v-if="product.images && product.images.length > 0" :src="product.images[0]" class="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-300" />
             <div v-else class="w-full h-full flex items-center justify-center text-slate-400 font-bold text-sm">No Product Image</div>
+            <div v-if="product.images && product.images.length > 0" class="absolute inset-0 bg-slate-950/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+              <span class="badge badge-sm bg-black/80 text-white font-bold border-none px-3 py-2 gap-1.5 shadow-lg">
+                <font-awesome-icon :icon="['fas', 'expand']" class="w-3 h-3" />
+                View Full Cover
+              </span>
+            </div>
             <span v-if="product.category" class="absolute top-3 left-3 badge badge-sm bg-black/60 text-white border-none font-bold backdrop-blur-xs">
               {{ product.category }}
             </span>
@@ -197,8 +203,12 @@
           <tbody>
             <tr v-for="product in paginatedProducts" :key="product.id" class="hover:bg-slate-50 dark:hover:bg-slate-800/40 border-b border-base-100 dark:border-slate-800/60 transition-colors">
               <td>
-                <div class="w-10 h-10 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 flex items-center justify-center border border-base-200 dark:border-slate-700">
-                  <img v-if="product.images && product.images.length > 0" :src="product.images[0]" class="w-full h-full object-cover" />
+                <div 
+                  @click="product.images && product.images.length > 0 ? openCoverViewer(product.images[0], product.name) : null"
+                  :class="['w-12 h-16 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 flex items-center justify-center border border-base-200 dark:border-slate-700', product.images && product.images.length > 0 ? 'cursor-pointer hover:border-primary transition-all' : '']"
+                  title="Click to view full cover"
+                >
+                  <img v-if="product.images && product.images.length > 0" :src="product.images[0]" class="w-full h-full object-contain p-0.5" />
                   <span v-else class="text-[9px] text-slate-400 font-bold">N/A</span>
                 </div>
               </td>
@@ -695,10 +705,18 @@
                   <div class="text-[10px] opacity-50 font-mono">{{ order.customerEmail }}</div>
                 </td>
                 <td>
-                  <div v-if="order.items && order.items.length > 0" class="space-y-1">
-                    <div v-for="(it, idx) in order.items" :key="idx" class="flex items-center gap-1.5 text-xs">
-                      <span class="badge badge-xs badge-neutral font-mono font-bold">{{ it.quantity }}×</span>
-                      <span class="font-medium truncate max-w-[180px]">{{ it.name }}</span>
+                  <div v-if="order.items && order.items.length > 0" class="space-y-1.5">
+                    <div v-for="(it, idx) in order.items" :key="idx" class="text-xs">
+                      <div class="flex items-center gap-1.5">
+                        <span class="badge badge-xs badge-neutral font-mono font-bold">{{ it.quantity }}×</span>
+                        <span class="font-medium truncate max-w-[180px]">{{ it.name }}</span>
+                      </div>
+                      <div v-if="it.customFields && Object.keys(it.customFields).length > 0" class="mt-1 pl-4 space-y-0.5">
+                        <div v-for="(val, key) in it.customFields" :key="key" class="text-[10px] bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 rounded px-1.5 py-0.5 inline-block mr-1">
+                          <span class="font-bold opacity-60">{{ key }}:</span>
+                          <span class="font-semibold text-primary ml-1">{{ val === true ? 'Yes' : val }}</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                   <div v-else class="opacity-40 italic text-[11px]">Single Item Order</div>
@@ -776,6 +794,21 @@
           <div class="flex justify-between">
             <span class="opacity-50">Recipient Email:</span>
             <span class="font-mono">{{ selectedOrder.customerEmail }}</span>
+          </div>
+          <div v-if="selectedOrder.items && selectedOrder.items.length > 0" class="pt-2 border-t border-base-200 space-y-1.5">
+            <span class="opacity-50 uppercase text-[10px] font-bold block mb-1">Ordered Items & Personalization:</span>
+            <div v-for="(it, idx) in selectedOrder.items" :key="idx" class="bg-white dark:bg-slate-900/60 p-2 rounded-xl border border-base-200">
+              <div class="flex justify-between font-bold text-[11px]">
+                <span>{{ it.quantity }}× {{ it.name }}</span>
+                <span v-if="it.unitAmountCents" class="text-primary">${{ ((it.unitAmountCents * it.quantity) / 100).toFixed(2) }}</span>
+              </div>
+              <div v-if="it.customFields && Object.keys(it.customFields).length > 0" class="mt-1.5 pt-1.5 border-t border-base-100 space-y-0.5">
+                <div v-for="(val, key) in it.customFields" :key="key" class="text-[10px]">
+                  <span class="font-bold opacity-60">{{ key }}:</span>
+                  <span class="font-semibold text-primary ml-1">{{ val === true ? 'Yes' : val }}</span>
+                </div>
+              </div>
+            </div>
           </div>
           <div v-if="selectedOrder.shippingAddress" class="pt-2 border-t border-base-200">
             <span class="opacity-50 uppercase text-[10px] font-bold block mb-1">Shipping Destination:</span>
@@ -874,6 +907,23 @@
         </div>
       </div>
     </div>
+    <!-- Full Cover Viewer Modal (Admin) -->
+    <div v-if="showCoverModal" class="modal modal-open z-50">
+      <div class="modal-box rounded-3xl border border-base-200 shadow-2xl bg-white dark:bg-slate-900 max-w-3xl flex flex-col items-center p-6 relative">
+        <button @click="showCoverModal = false" class="btn btn-sm btn-circle btn-ghost absolute top-4 right-4">✕</button>
+        <h3 class="font-black text-lg tracking-tight mb-4 text-center max-w-lg truncate">{{ coverModalTitle }}</h3>
+        <div class="w-full flex items-center justify-center bg-slate-100 dark:bg-slate-800/60 rounded-2xl p-4 border border-base-200 max-h-[75vh] overflow-hidden">
+          <img :src="coverModalImage" class="max-h-[70vh] max-w-full object-contain rounded-xl shadow-xl" />
+        </div>
+        <div class="modal-action w-full justify-between items-center mt-4">
+          <a :href="coverModalImage" target="_blank" class="btn btn-xs btn-outline rounded-xl font-bold gap-1 text-slate-500">
+            <font-awesome-icon :icon="['fas', 'arrow-up-right-from-square']" class="w-3 h-3" />
+            Open Original File
+          </a>
+          <button type="button" @click="showCoverModal = false" class="btn btn-sm btn-primary rounded-xl font-bold px-6 text-white">Close</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -893,6 +943,17 @@ const submitting = ref(false);
 const editingId = ref<string | null>(null);
 const slugManuallyEdited = ref(false);
 const quillInstance = ref<Quill | null>(null);
+
+// Full Cover Viewer Modal State
+const showCoverModal = ref(false);
+const coverModalImage = ref("");
+const coverModalTitle = ref("");
+
+const openCoverViewer = (imageUrl: string, title?: string) => {
+  coverModalImage.value = imageUrl;
+  coverModalTitle.value = title || "Book Cover";
+  showCoverModal.value = true;
+};
 
 // Orders Management State
 const orders = ref<CMSPurchase[]>([]);

@@ -3,24 +3,17 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy SDKs and the CMS workspace
-COPY admin-sdk /app/admin-sdk
-COPY sdk /app/sdk
+# Copy admin-sdk dependency
+COPY admin-sdk /admin-sdk
+
+# Copy workspace source files
 COPY cms /app/cms
 
-# Build admin-sdk
-WORKDIR /app/admin-sdk
-RUN npm install
-RUN npm run build
-
-# Build sdk
-WORKDIR /app/sdk
-RUN npm install
-RUN npm run build
-
-# Build CMS workspace
+# Install dependencies and build
+RUN cd /admin-sdk && npm install && npm run build
 WORKDIR /app/cms
 RUN npm install
+RUN if [ "$(uname -m)" = "x86_64" ]; then npm install @rollup/rollup-linux-x64-musl; elif [ "$(uname -m)" = "aarch64" ]; then npm install @rollup/rollup-linux-arm64-musl; fi
 RUN npm run build
 
 # Stage 2: Final minimal production image
@@ -28,9 +21,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy built SDKs and CMS workspace
-COPY --from=builder /app/admin-sdk /app/admin-sdk
-COPY --from=builder /app/sdk /app/sdk
+# Copy built admin-sdk and cms workspace
+COPY --from=builder /admin-sdk /admin-sdk
 COPY --from=builder /app/cms /app/cms
 
 WORKDIR /app/cms/backend

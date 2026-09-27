@@ -41,6 +41,9 @@ function normalizeSettings(rawSettings: any): CMSSettings {
     isStoreEnabled: Boolean(rawSettings.isStoreEnabled ?? rawSettings.isstoreenabled ?? false),
     stripePublishableKey: rawSettings.stripePublishableKey ?? rawSettings.stripepublishablekey,
     stripeWebhookSecret: rawSettings.stripeWebhookSecret ?? rawSettings.stripewebhooksecret,
+    postmarkApiToken: rawSettings.postmarkApiToken ?? rawSettings.postmarkapitoken,
+    postmarkFromEmail: rawSettings.postmarkFromEmail ?? rawSettings.postmarkfromemail,
+    postmarkNotifyOnOrder: rawSettings.postmarkNotifyOnOrder !== undefined ? Boolean(rawSettings.postmarkNotifyOnOrder) : (rawSettings.postmarknotifyonorder !== undefined ? Boolean(rawSettings.postmarknotifyonorder) : true),
     navbarLogo: rawSettings.navbarLogo ?? rawSettings.navbarlogo,
     navbarLinks: typeof (rawSettings.navbarLinks ?? rawSettings.navbarlinks) === "string" 
       ? JSON.parse(rawSettings.navbarLinks ?? rawSettings.navbarlinks) 
@@ -68,6 +71,8 @@ function normalizeSettings(rawSettings: any): CMSSettings {
       ? JSON.parse(rawSettings.footerStyles ?? rawSettings.footerstyles)
       : (rawSettings.footerStyles ?? rawSettings.footerstyles),
     areCommentsEnabledGlobally: Boolean(rawSettings.areCommentsEnabledGlobally ?? rawSettings.arecommentsenabledglobally ?? true),
+    postmarkNotifyStaffOnOrder: rawSettings.postmarkNotifyStaffOnOrder !== undefined ? Boolean(rawSettings.postmarkNotifyStaffOnOrder) : (rawSettings.postmarknotifystaffonorder !== undefined ? Boolean(rawSettings.postmarknotifystaffonorder) : true),
+    adminNotificationEmails: rawSettings.adminNotificationEmails ?? rawSettings.adminnotificationemails ?? "",
     createdAt: rawSettings.createdAt ?? rawSettings.createdat,
     updatedAt: rawSettings.updatedAt ?? rawSettings.updatedat,
   };
@@ -307,6 +312,8 @@ export function registerPageRoutes(app: FastifyInstance) {
         "postmarkApiToken",
         "postmarkFromEmail",
         "postmarkNotifyOnOrder",
+        "postmarkNotifyStaffOnOrder",
+        "adminNotificationEmails",
         "navbarLogo",
         "navbarLinks",
         "footerText",
@@ -375,101 +382,10 @@ export function registerPageRoutes(app: FastifyInstance) {
       }
 
       // Automatically re-publish all published pages in the background so that
-      // navbar/footer/styles/favicon changes propagate immediately.
-      // We run this asynchronously without blocking the reply.
-      (async () => {
-        try {
-          const pagesRes = await database("cms_pages").where("isPublished", true).execute();
-          const endpoint = `${(process.env.SWIFTBASE_URL || process.env.SWIFTBASE_API_URL || "https://api.swiftbase.io").replace(/\/$/, "")}/storage`;
-          const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET!, endpoint });
-          for (const rawPage of pagesRes.data) {
-            const page = normalizePage(rawPage);
-            const compiledHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${updatedSettings.siteTitle || "SBCMS"} - ${page.seoMetadata?.title || page.title}</title>
-  <meta name="description" content="${page.seoMetadata?.description || ''}">
-  ${updatedSettings.faviconUrl ? `<link rel="icon" href="${updatedSettings.faviconUrl}">` : ""}
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    ${page.layoutCss || ""}
-    ${updatedSettings.navbarCss || ""}
-    ${updatedSettings.footerCss || ""}
-    ${updatedSettings.globalStyles || ""}
-  </style>
-</head>
-<body class="bg-base-100 text-base-content min-h-screen flex flex-col">
-  <!-- Nav Bar -->
-  ${updatedSettings.navbarHtml ? updatedSettings.navbarHtml : `
-  <header class="bg-slate-900 text-white p-4 flex justify-between items-center shadow-lg">
-    <a href="/" class="text-xl font-black tracking-tighter">${updatedSettings.navbarLogo || updatedSettings.siteTitle || "SBCMS"}</a>
-    <nav class="flex gap-6 font-bold text-sm">
-      ${updatedSettings.navbarLinks && updatedSettings.navbarLinks.length > 0 
-        ? updatedSettings.navbarLinks.map((link: any) => `<a href="${link.url}" class="hover:text-primary">${link.label}</a>`).join("\n    ")
-        : `
-      <a href="/" class="hover:text-primary">Home</a>
-      ${updatedSettings.isBlogEnabled ? '<a href="/blog" class="hover:text-primary">Blog</a>' : ""}
-      ${updatedSettings.isStoreEnabled ? '<a href="/store" class="hover:text-primary">Store</a>' : ""}
-        `
-      }
-    </nav>
-  </header>
-  `}
-
-  <!-- Page Content -->
-  <main class="flex-1">
-    ${page.layoutHtml ? page.layoutHtml : `
-      <div class="p-8 text-center"><h1 class="text-4xl font-black">Welcome</h1></div>
-    `}
-  </main>
-
-  <!-- Footer -->
-  ${updatedSettings.footerHtml ? updatedSettings.footerHtml : `
-  <footer class="bg-slate-900 text-white p-6 text-center text-xs opacity-60">
-    <div class="max-w-4xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
-      <p>${updatedSettings.footerText || `&copy; ${new Date().getFullYear()} ${updatedSettings.siteTitle || "SBCMS"}. Powered by Swiftbase.`}</p>
-      ${updatedSettings.footerLinks && updatedSettings.footerLinks.length > 0 ? `
-      <div class="flex gap-4 font-bold">
-        ${updatedSettings.footerLinks.map((link: any) => `<a href="${link.url}" class="hover:text-primary">${link.label}</a>`).join("\n      ")}
-      </div>
-      ` : ""}
-    </div>
-  </footer>
-  `}
-
-  <!-- Web Analytics Tracker -->
-  <script>
-    (function() {
-      const trackEvent = (type, custom = {}) => {
-        fetch('/api/analytics/event', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            path: window.location.pathname,
-            referrer: document.referrer,
-            browser: navigator.userAgent,
-            operatingSystem: navigator.platform,
-            deviceType: window.innerWidth < 768 ? 'mobile' : 'desktop',
-            conversionName: type === 'conversion' ? custom.name : undefined
-          })
-        }).catch(err => console.error('Analytics tracking failed:', err));
-      };
-      // Track Pageview
-      trackEvent('pageview');
-      window.trackCMSConversion = (name) => trackEvent('conversion', { name });
-    })();
-  </script>
-</body>
-</html>`;
-            const targetKey = page.slug === "home" ? "index.html" : `${page.slug}/index.html`;
-            await storage.putObject(targetKey, compiledHtml, { contentType: "text/html" });
-          }
-        } catch (republishErr) {
-          console.error("Failed to background republish pages on settings update:", republishErr);
-        }
-      })();
+      // navbar/footer/styles/favicon changes and dynamic widgets propagate immediately.
+      rebuildAllPublishedPages().catch((republishErr) => {
+        console.error("Failed to background republish pages on settings update:", republishErr);
+      });
 
       return reply.send(updatedSettings);
     } catch (err: any) {
@@ -581,12 +497,30 @@ export function registerPageRoutes(app: FastifyInstance) {
       const rawSettings = settingsRes.data[0];
       const settings = rawSettings ? normalizeSettings(rawSettings) : { isBlogEnabled: false, isStoreEnabled: false } as any;
 
-      const processedLayoutHtml = page.layoutHtml ? await injectDynamicBlocks(page.layoutHtml) : `
-        <div class="p-8 text-center"><h1 class="text-4xl font-black">Welcome</h1></div>
-      `;
+      const compiledHtml = await compilePageHtml(page, settings);
 
-      // Compile static HTML with Tailwind, Quill, and Stripe integration
-      const compiledHtml = `<!DOCTYPE html>
+      // Upload using pre-signed Storage SDK
+      const endpoint = `${(process.env.SWIFTBASE_URL || process.env.SWIFTBASE_API_URL || "https://api.swiftbase.io").replace(/\/$/, "")}/storage`;
+      const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET!, endpoint });
+      const targetKey = page.slug === "home" ? "index.html" : `${page.slug}/index.html`;
+      await storage.putObject(targetKey, compiledHtml, { contentType: "text/html" });
+
+      // Update publish status in DB
+      await database("cms_pages").where("id", id).update({ ...page, isPublished: true, hasUnpublishedChanges: false }).execute();
+
+      return reply.send({ success: true, url: `/prd_storage/sites/${targetKey}` });
+    } catch (err: any) {
+      return reply.status(500).send({ message: err.message });
+    }
+  });
+}
+
+export async function compilePageHtml(page: CMSPage, settings: CMSSettings): Promise<string> {
+  const processedLayoutHtml = page.layoutHtml ? await injectDynamicBlocks(page.layoutHtml) : `
+    <div class="p-8 text-center"><h1 class="text-4xl font-black">Welcome</h1></div>
+  `;
+
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -664,21 +598,23 @@ export function registerPageRoutes(app: FastifyInstance) {
   ${settings.isStoreEnabled ? getCartDrawerAndScriptHtml() : ""}
 </body>
 </html>`;
+}
 
-      // Upload using pre-signed Storage SDK
-      const endpoint = `${(process.env.SWIFTBASE_URL || process.env.SWIFTBASE_API_URL || "https://api.swiftbase.io").replace(/\/$/, "")}/storage`;
-      const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET!, endpoint });
-      const targetKey = page.slug === "home" ? "index.html" : `${page.slug}/index.html`;
-      await storage.putObject(targetKey, compiledHtml, { contentType: "text/html" });
+export async function rebuildAllPublishedPages() {
+  const pagesRes = await database("cms_pages").where("isPublished", true).execute();
+  const settingsRes = await database("cms_settings").execute();
+  const rawSettings = settingsRes.data[0];
+  const settings = rawSettings ? normalizeSettings(rawSettings) : { isBlogEnabled: false, isStoreEnabled: false, siteTitle: "SBCMS" } as any;
 
-      // Update publish status in DB
-      await database("cms_pages").where("id", id).update({ ...page, isPublished: true, hasUnpublishedChanges: false }).execute();
+  const endpoint = `${(process.env.SWIFTBASE_URL || process.env.SWIFTBASE_API_URL || "https://api.swiftbase.io").replace(/\/$/, "")}/storage`;
+  const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET!, endpoint });
 
-      return reply.send({ success: true, url: `/prd_storage/sites/${targetKey}` });
-    } catch (err: any) {
-      return reply.status(500).send({ message: err.message });
-    }
-  });
+  for (const rawPage of pagesRes.data) {
+    const page = normalizePage(rawPage);
+    const compiledHtml = await compilePageHtml(page, settings);
+    const targetKey = page.slug === "home" ? "index.html" : `${page.slug}/index.html`;
+    await storage.putObject(targetKey, compiledHtml, { contentType: "text/html" });
+  }
 }
 
 function parseJSONField<T>(field: any, defaultValue: T): T {
@@ -788,7 +724,11 @@ async function injectDynamicBlocks(html: string): Promise<string> {
       };
 
       const limit = parseInt(getAttr("data-limit") || "6", 10);
-      const defaultCategory = (getAttr("data-default-category") || "").trim().toLowerCase();
+      const rawDefaultCat = (getAttr("data-default-category") || "").trim().toLowerCase();
+      const rawExcludeCat = (getAttr("data-exclude-category") || "").trim().toLowerCase();
+      const isNegated = rawDefaultCat.startsWith("!") || rawDefaultCat.startsWith("not:");
+      const defaultExcludeCategory = rawExcludeCat || (isNegated ? rawDefaultCat.replace(/^(!|not:)/, "").trim() : "");
+      const defaultCategory = isNegated ? "" : rawDefaultCat;
       const defaultInStockOnly = getAttr("data-default-instock") === "true";
       const showSearch = getAttr("data-show-search") !== "false";
       const showCategories = getAttr("data-show-categories") !== "false";
@@ -796,10 +736,9 @@ async function injectDynamicBlocks(html: string): Promise<string> {
       // Strict server-side hidden default filter enforcement
       let candidateProducts = rawProducts.filter(p => {
         if (defaultInStockOnly && !p.inStock) return false;
-        if (defaultCategory) {
-          const cat = (p.category || "").trim().toLowerCase();
-          if (cat !== defaultCategory) return false;
-        }
+        const cat = (p.category || "").trim().toLowerCase();
+        if (defaultCategory && cat !== defaultCategory) return false;
+        if (defaultExcludeCategory && cat === defaultExcludeCategory) return false;
         return true;
       });
 
@@ -949,8 +888,98 @@ async function injectDynamicBlocks(html: string): Promise<string> {
     });
   }
 
+  // 3. Process cms-ebook-preview-widget
+  if (newHtml.includes("cms-ebook-preview-widget")) {
+    const previewRegex = /<div class="([^"]*cms-ebook-preview-widget[^"]*)"([^>]*)><\/div>/g;
+
+    newHtml = await replaceAsync(newHtml, previewRegex, async (fullMatch, classes, attrString) => {
+      const getAttr = (name: string): string => {
+        const m = attrString.match(new RegExp(`${name}="([^"]*)"`, 'i'));
+        return m ? m[1] : "";
+      };
+
+      const bookTitle = getAttr("data-book-title") || "Sample Book Preview";
+      const author = getAttr("data-author") || "Author Name";
+      const coverImage = getAttr("data-cover-image") || "";
+      const productId = getAttr("data-product-id") || "";
+      const rawSample = getAttr("data-sample-content") || "Welcome to the sample preview of this book. Enjoy reading this excerpt!";
+      let sampleText = rawSample;
+      try {
+        sampleText = decodeURIComponent(rawSample.replace(/&quot;/g, '"'));
+      } catch {
+        sampleText = rawSample;
+      }
+
+      const widgetInstanceId = `ebp_${Math.random().toString(36).substring(2, 9)}`;
+
+      return `
+        <div class="${classes} max-w-3xl mx-auto my-8 p-6 md:p-8 bg-white border border-slate-200 rounded-3xl shadow-sm text-slate-800">
+          <div class="flex flex-col sm:flex-row items-center sm:items-start gap-6 pb-6 border-b border-slate-100">
+            ${coverImage ? `
+            <div class="w-24 h-36 shrink-0 rounded-xl overflow-hidden shadow-md bg-slate-100">
+              <img src="${coverImage}" class="w-full h-full object-cover" alt="${bookTitle}" />
+            </div>` : `
+            <div class="w-24 h-36 shrink-0 rounded-xl bg-slate-900 text-white flex flex-col justify-center items-center text-center p-2 shadow-md">
+              <span class="text-xs font-black uppercase tracking-wider">Preview</span>
+            </div>`}
+            <div class="flex-1 text-center sm:text-left">
+              <div class="inline-block bg-primary/10 text-primary text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md mb-2">Book Sample</div>
+              <h3 class="text-2xl font-black text-slate-900 tracking-tight leading-tight">${bookTitle}</h3>
+              <p class="text-sm font-semibold text-slate-500 mt-1">by ${author}</p>
+              
+              <!-- Reader Controls -->
+              <div class="flex items-center justify-center sm:justify-start gap-2 mt-4 text-xs">
+                <button type="button" onclick="window['${widgetInstanceId}_zoom'](-1)" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg font-bold text-slate-700">A-</button>
+                <button type="button" onclick="window['${widgetInstanceId}_zoom'](1)" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg font-bold text-slate-700">A+</button>
+                <button type="button" onclick="window['${widgetInstanceId}_toggleTheme']()" class="px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg font-bold text-slate-700">🌓 Theme</button>
+              </div>
+            </div>
+            ${productId ? `
+            <div class="shrink-0">
+              <a href="/store" class="btn btn-primary text-white text-xs font-black uppercase tracking-wider rounded-xl px-5 py-2.5 shadow-md">
+                Buy Full Book &rarr;
+              </a>
+            </div>` : ""}
+          </div>
+
+          <div id="${widgetInstanceId}_viewport" class="prose max-w-none py-6 text-slate-700 leading-relaxed font-serif text-base transition-all duration-200" style="min-height: 200px;">
+            ${sampleText.replace(/\n\n/g, '</p><p class="mb-4">').replace(/\n/g, '<br/>')}
+          </div>
+
+          <div class="pt-6 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
+            <span>End of Sample Preview</span>
+            ${productId ? `<a href="/store" class="font-bold text-primary hover:underline">Get the full copy to continue reading &rarr;</a>` : ""}
+          </div>
+
+          <script>
+            (function() {
+              let fontSize = 16;
+              let isDark = false;
+              window['${widgetInstanceId}_zoom'] = function(delta) {
+                fontSize = Math.min(24, Math.max(12, fontSize + delta * 2));
+                const el = document.getElementById('${widgetInstanceId}_viewport');
+                if (el) el.style.fontSize = fontSize + 'px';
+              };
+              window['${widgetInstanceId}_toggleTheme'] = function() {
+                isDark = !isDark;
+                const el = document.getElementById('${widgetInstanceId}_viewport');
+                if (el) {
+                  el.style.backgroundColor = isDark ? '#1e293b' : 'transparent';
+                  el.style.color = isDark ? '#f8fafc' : '#334155';
+                  el.style.padding = isDark ? '16px' : '0px';
+                  el.style.borderRadius = isDark ? '12px' : '0px';
+                }
+              };
+            })();
+          </script>
+        </div>
+      `;
+    });
+  }
+
   return newHtml;
 }
+
 
 async function replaceAsync(str: string, regex: RegExp, asyncFn: (...args: any[]) => Promise<string>): Promise<string> {
   const promises: Promise<string>[] = [];

@@ -95,8 +95,108 @@
       </div>
     </div>
 
+    <!-- Store Products Dynamic Block -->
+    <div
+      v-else-if="block.type === 'products-widget'"
+      :class="[classesString, 'cms-products-widget']"
+      :style="computedStyles"
+    >
+      <div v-if="loadingProducts" class="flex justify-center py-6">
+        <span class="loading loading-spinner loading-md text-primary"></span>
+      </div>
+      <div v-else-if="filteredProducts.length === 0" class="p-6 text-center border border-dashed border-base-200 dark:border-slate-800 rounded-2xl bg-base-200/10">
+        <font-awesome-icon :icon="['fas', 'cart-shopping']" class="w-6 h-6 mb-2 opacity-40 mx-auto" />
+        <p class="text-xs opacity-50 font-bold uppercase">No matching products found</p>
+        <p class="text-[10px] opacity-40 mt-0.5">Ensure products exist and match category/stock filters.</p>
+      </div>
+      <div v-else class="space-y-4">
+        <!-- Widget Preview Filter Bar -->
+        <div v-if="block.attributes?.showSearch !== 'false' || block.attributes?.showCategories !== 'false'" class="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-50 dark:bg-slate-850/50 rounded-2xl border border-base-200 dark:border-slate-800">
+          <div v-if="block.attributes?.showSearch !== 'false'" class="text-xs text-slate-400 font-mono">
+            🔍 Search filter enabled
+          </div>
+          <div v-if="block.attributes?.showCategories !== 'false'" class="text-xs text-slate-400 font-mono">
+            🏷️ Category filter enabled
+          </div>
+          <div v-if="block.attributes?.defaultCategory" class="badge badge-xs badge-primary font-bold">
+            Locked Category: {{ block.attributes.defaultCategory }}
+          </div>
+        </div>
+
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div
+            v-for="prod in filteredProducts"
+            :key="prod.id"
+            class="card bg-white dark:bg-slate-900 border border-base-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between"
+          >
+            <div class="relative h-36 bg-slate-100 dark:bg-slate-800 shrink-0">
+              <img v-if="prod.images && prod.images.length > 0" :src="prod.images[0]" class="w-full h-full object-cover" />
+              <div v-else class="w-full h-full flex items-center justify-center text-slate-400 text-xs font-bold">No Image</div>
+              <span v-if="prod.category" class="absolute top-2 left-2 badge badge-xs bg-black/60 text-white border-none font-bold">
+                {{ prod.category }}
+              </span>
+            </div>
+            <div class="p-4 flex-1 flex flex-col justify-between gap-2">
+              <div>
+                <div class="flex justify-between items-start">
+                  <h4 class="font-bold text-xs text-slate-900 dark:text-white truncate">{{ prod.name }}</h4>
+                  <span class="font-black text-primary text-xs">${{ (prod.priceCents / 100).toFixed(2) }}</span>
+                </div>
+                <div class="text-[11px] opacity-60 line-clamp-2 mt-1" v-html="prod.description || ''"></div>
+              </div>
+              <div class="flex gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button class="btn btn-xs btn-primary rounded-lg flex-1 text-white font-bold text-[9px] pointer-events-none">Add to Cart</button>
+                <button class="btn btn-xs btn-outline rounded-lg font-bold text-[9px] pointer-events-none">Buy Now</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- E-book Preview Dynamic Widget -->
+    <div
+      v-else-if="block.type === 'ebook-preview-widget'"
+      :class="[classesString, 'cms-ebook-preview-widget']"
+      :style="computedStyles"
+    >
+      <div class="max-w-2xl mx-auto p-6 bg-white dark:bg-slate-900 border border-base-200 dark:border-slate-800 rounded-3xl shadow-sm space-y-5">
+        <div class="flex flex-col sm:flex-row items-center sm:items-start gap-5 pb-5 border-b border-base-200 dark:border-slate-800">
+          <div class="w-20 h-28 shrink-0 rounded-xl bg-slate-100 dark:bg-slate-800 overflow-hidden shadow-sm flex items-center justify-center">
+            <img v-if="block.attributes?.['data-cover-image']" :src="block.attributes['data-cover-image']" class="w-full h-full object-cover" />
+            <div v-else class="text-center p-2 text-slate-400">
+              <font-awesome-icon :icon="['fas', 'book-open']" class="text-xl mb-1 opacity-40" />
+              <span class="text-[8px] font-black uppercase tracking-wider block">Preview</span>
+            </div>
+          </div>
+          <div class="flex-1 text-center sm:text-left">
+            <span class="badge badge-primary badge-sm font-black uppercase text-[8px] tracking-widest mb-1.5">E-book Sample Reader</span>
+            <h4 class="font-black text-lg text-slate-900 dark:text-white leading-tight">
+              {{ block.attributes?.['data-book-title'] || 'Sample Book Title' }}
+            </h4>
+            <p class="text-xs text-slate-400 mt-0.5">by {{ block.attributes?.['data-author'] || 'Author Name' }}</p>
+            <div class="flex items-center justify-center sm:justify-start gap-1.5 mt-3 text-[10px]">
+              <span class="btn btn-xs btn-outline rounded-lg text-[9px] pointer-events-none">A-</span>
+              <span class="btn btn-xs btn-outline rounded-lg text-[9px] pointer-events-none">A+</span>
+              <span class="btn btn-xs btn-outline rounded-lg text-[9px] pointer-events-none">🌓 Theme</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="prose max-w-none text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-serif line-clamp-6">
+          {{ block.attributes?.['data-sample-content'] || 'Chapter 1: The Beginning... (Configure sample content in properties inspector)' }}
+        </div>
+
+        <div class="pt-4 border-t border-base-200 dark:border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
+          <span>Interactive Preview Widget</span>
+          <span class="text-primary font-bold">Buy Full Book &rarr;</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Inputs/Buttons & non-recursive tag leaves -->
     <input
+
       v-else-if="block.tagName === 'input'"
       :type="block.attributes?.type || 'text'"
       :placeholder="block.attributes?.placeholder || ''"
@@ -396,9 +496,52 @@ export default defineComponent({
       return result.slice(0, limit);
     });
 
+    const productsList = ref<any[]>([]);
+    const loadingProducts = ref(false);
+
+    const fetchProductsForPreview = async () => {
+      if (props.block.type !== "products-widget") return;
+      loadingProducts.value = true;
+      try {
+        const res = await fetch("/api/products");
+        if (res.ok) {
+          productsList.value = await res.json();
+        }
+      } catch (err) {
+        console.error("Failed to fetch products for preview:", err);
+      } finally {
+        loadingProducts.value = false;
+      }
+    };
+
+    const filteredProducts = computed(() => {
+      let result = [...productsList.value];
+      const rawDefaultCat = (props.block.attributes?.defaultCategory || "").trim().toLowerCase();
+      const rawExcludeCat = (props.block.attributes?.excludeCategory || "").trim().toLowerCase();
+      const isNegated = rawDefaultCat.startsWith("!") || rawDefaultCat.startsWith("not:");
+      const excludeCat = rawExcludeCat || (isNegated ? rawDefaultCat.replace(/^(!|not:)/, "").trim() : "");
+      const lockedCat = isNegated ? "" : rawDefaultCat;
+      const inStockOnly = props.block.attributes?.defaultInStockOnly === "true";
+
+      if (lockedCat) {
+        result = result.filter((p: any) => (p.category || "").toLowerCase() === lockedCat);
+      }
+      if (excludeCat) {
+        result = result.filter((p: any) => (p.category || "").toLowerCase() !== excludeCat);
+      }
+      if (inStockOnly) {
+        result = result.filter((p: any) => p.inStock !== false);
+      }
+
+      const limit = parseInt(props.block.attributes?.limit || "6", 10);
+      return result.slice(0, limit);
+    });
+
     onMounted(() => {
       if (props.block.type === "recent-posts") {
         fetchPostsForPreview();
+      } else if (props.block.type === "products-widget") {
+        fetchProductsForPreview();
       }
     });
 
@@ -489,7 +632,10 @@ export default defineComponent({
       onChildUpdateContent,
       postsList,
       loadingPosts,
-      filteredPosts
+      filteredPosts,
+      productsList,
+      loadingProducts,
+      filteredProducts
     };
   }
 });

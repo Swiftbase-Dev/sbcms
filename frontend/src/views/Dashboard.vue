@@ -6,7 +6,10 @@
         <div class="badge bg-primary text-white border-none font-bold uppercase tracking-widest text-[9px] px-3 py-1">CMS Analytics</div>
         <h1 class="text-4xl font-black tracking-tighter">Dashboard Overview</h1>
       </div>
-      <button @click="fetchData" class="btn btn-outline border-slate-300 dark:border-slate-800 rounded-xl px-6 font-bold text-xs uppercase">Refresh</button>
+      <button @click="fetchData" :disabled="isLoading" class="btn btn-outline border-slate-300 dark:border-slate-800 rounded-xl px-6 font-bold text-xs uppercase flex items-center gap-2">
+        <span v-if="isLoading" class="loading loading-spinner loading-xs"></span>
+        <span>{{ isLoading ? 'Refreshing...' : 'Refresh' }}</span>
+      </button>
     </div>
 
     <!-- Cards Grid -->
@@ -101,6 +104,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 
+const isLoading = ref(false);
 const stats = ref({ pageviews: 0, sessions: 0, purchases: 0, revenue: 0 });
 const splits = ref<{ devices: Record<string, number>; browsers: Record<string, number>; countries: Record<string, number> }>({
   devices: {},
@@ -115,6 +119,7 @@ const getPercentage = (val: number, total: number) => {
 };
 
 const fetchData = async () => {
+  isLoading.value = true;
   try {
     const res = await fetch("/api/analytics/dashboard");
     if (res.ok) {
@@ -125,6 +130,8 @@ const fetchData = async () => {
     }
   } catch (err) {
     console.error("Failed to load dashboard metrics:", err);
+  } finally {
+    isLoading.value = false;
   }
 };
 

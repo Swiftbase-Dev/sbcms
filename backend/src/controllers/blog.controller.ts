@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { db, Storage } from "swiftbase-admin-sdk";
 import type { CMSPost } from "swiftbase-cms-shared";
+import { rebuildAllPublishedPages } from "./page.controller.js";
 
 const database = db(process.env.SWIFTBASE_DATABASE_NAME || "cms");
 
@@ -25,7 +26,14 @@ export async function rebuildBlogSite() {
     seoMetadata: typeof p.publishedSeoMetadata === "string" ? JSON.parse(p.publishedSeoMetadata) : (p.publishedSeoMetadata !== null && p.publishedSeoMetadata !== undefined ? p.publishedSeoMetadata : p.seoMetadata),
   }));
 
-  const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET || "cms-site-assets" });
+  // Sort published posts so the most recent entries are first
+  posts.sort((a: any, b: any) => {
+    const timeA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+    const timeB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+    return timeB - timeA;
+  });
+
+  const storage = new Storage({ bucket: process.env.SWIFTBASE_STORAGE_BUCKET! });
 
   // Fetch settings to check navbar, footer, favicon, links, and styles
   let settings: any = { isBlogEnabled: false, isStoreEnabled: false, siteTitle: "SBCMS" };
@@ -145,14 +153,15 @@ export async function rebuildBlogSite() {
         ` : `
           <div class="grid gap-8 grid-cols-1" id="posts-container">
             ${posts
-              .map((p: CMSPost) => {
+              .map((p: CMSPost, index: number) => {
                 const d = p.publishedAt ? new Date(p.publishedAt) : new Date();
                 const year = d.getFullYear();
                 const month = d.getMonth();
                 const tagsHtml = p.tags ? p.tags.split(',').map(tag => `<span class="bg-primary/10 text-primary text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded mr-1 mb-1 inline-block">${tag.trim()}</span>`).join('') : '';
 
                 return `
-                <article class="blog-article border border-slate-200 bg-white rounded-3xl p-6 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between h-full"
+                <article class="blog-article border border-slate-200 bg-white rounded-3xl p-6 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between h-full ${index >= 6 ? 'hidden' : ''}"
+                         data-index="${index}"
                          data-year="${year}" 
                          data-month="${month}" 
                          data-title="${(p.title || '').replace(/"/g, '&quot;')}" 
@@ -181,6 +190,9 @@ export async function rebuildBlogSite() {
                 `;
               })
               .join("")}
+          </div>
+          <div id="posts-scroll-sentinel" class="h-10 flex items-center justify-center my-6">
+            <span id="posts-loading-indicator" class="hidden text-xs text-slate-400 font-bold uppercase tracking-wider animate-pulse">Loading more articles...</span>
           </div>
         `}
       </div>
@@ -214,18 +226,20 @@ export async function rebuildBlogSite() {
     (function() {
       const searchInput = document.getElementById('sidebar-search');
       const filterButtons = document.querySelectorAll('.archive-filter-btn');
-      const articles = document.querySelectorAll('.blog-article');
+      const articles = Array.from(document.querySelectorAll('.blog-article'));
       const noPostsFound = document.getElementById('no-posts-found');
+      const sentinel = document.getElementById('posts-scroll-sentinel');
+      const loadingIndicator = document.getElementById('posts-loading-indicator');
       
       let activeFilter = 'all'; 
       let activeYear = null;
       let activeMonth = null;
       let searchQuery = '';
+      const BATCH_SIZE = 6;
+      let displayedCount = BATCH_SIZE;
 
-      function updateFilters() {
-        let visibleCount = 0;
-
-        articles.forEach(article => {
+      function getMatchingArticles() {
+        return articles.filter(article => {
           const year = article.getAttribute('data-year');
           const month = article.getAttribute('data-month');
           const title = (article.getAttribute('data-title') || '').toLowerCase();
@@ -242,31 +256,75 @@ export async function rebuildBlogSite() {
             matchesArchive = year === activeYear && month === activeMonth;
           }
 
-          if (matchesSearch && matchesArchive) {
-            article.style.display = '';
-            visibleCount++;
-          } else {
-            article.style.display = 'none';
-          }
+          return matchesSearch && matchesArchive;
+        });
+      }
+
+      function updateDisplay() {
+        const matching = getMatchingArticles();
+        
+        // Hide all articles first
+        articles.forEach(a => { a.style.display = 'none'; });
+
+        if (matching.length === 0) {
+          if (noPostsFound) noPostsFound.classList.remove('hidden');
+          if (loadingIndicator) loadingIndicator.classList.add('hidden');
+          return;
+        }
+
+        if (noPostsFound) noPostsFound.classList.add('hidden');
+
+        // Show up to displayedCount matching articles
+        const toShow = matching.slice(0, displayedCount);
+        toShow.forEach(a => {
+          a.style.display = '';
+          a.classList.remove('hidden');
         });
 
-        if (visibleCount === 0 && articles.length > 0) {
-          noPostsFound.classList.remove('hidden');
+        if (matching.length > displayedCount) {
+          if (loadingIndicator) loadingIndicator.classList.remove('hidden');
         } else {
-          noPostsFound.classList.add('hidden');
+          if (loadingIndicator) loadingIndicator.classList.add('hidden');
         }
+      }
+
+      function loadMore() {
+        const matching = getMatchingArticles();
+        if (displayedCount < matching.length) {
+          displayedCount += BATCH_SIZE;
+          updateDisplay();
+        }
+      }
+
+      // Infinite scroll with IntersectionObserver
+      if (sentinel && 'IntersectionObserver' in window) {
+        const observer = new IntersectionObserver((entries) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              loadMore();
+            }
+          });
+        }, { rootMargin: '200px' });
+        observer.observe(sentinel);
+      } else {
+        // Fallback window scroll listener
+        window.addEventListener('scroll', () => {
+          if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 400) {
+            loadMore();
+          }
+        });
       }
 
       if (searchInput) {
         searchInput.addEventListener('input', (e) => {
           searchQuery = e.target.value.toLowerCase().trim();
-          updateFilters();
+          displayedCount = BATCH_SIZE;
+          updateDisplay();
         });
       }
 
       filterButtons.forEach(btn => {
         btn.addEventListener('click', () => {
-          // Reset active style for all buttons
           filterButtons.forEach(b => {
             b.classList.remove('text-primary', 'font-black');
             if (b.getAttribute('data-filter') !== 'all') {
@@ -274,7 +332,6 @@ export async function rebuildBlogSite() {
             }
           });
 
-          // Add active style to clicked button
           btn.classList.add('text-primary', 'font-black');
           btn.classList.remove('font-normal', 'text-slate-600');
 
@@ -282,9 +339,13 @@ export async function rebuildBlogSite() {
           activeYear = btn.getAttribute('data-year');
           activeMonth = btn.getAttribute('data-month');
           
-          updateFilters();
+          displayedCount = BATCH_SIZE;
+          updateDisplay();
         });
       });
+
+      // Initial render
+      updateDisplay();
     })();
   </script>
 </body>
@@ -594,6 +655,7 @@ export function registerBlogRoutes(app: FastifyInstance) {
 
       if (newPost.status === "published") {
         await rebuildBlogSite();
+        rebuildAllPublishedPages().catch(e => console.warn(`rebuildAllPublishedPages error: ${e.message}`));
       }
 
       return reply.send(newPost);
@@ -666,6 +728,7 @@ export function registerBlogRoutes(app: FastifyInstance) {
       // Rebuild if publishing now or unpublishing
       if (isPublishingNow || isUnpublishing) {
         await rebuildBlogSite();
+        rebuildAllPublishedPages().catch(e => console.warn(`rebuildAllPublishedPages error: ${e.message}`));
       }
 
       return reply.send(updatedPost);
@@ -685,6 +748,7 @@ export function registerBlogRoutes(app: FastifyInstance) {
 
       if (existing.status === "published") {
         await rebuildBlogSite();
+        rebuildAllPublishedPages().catch(e => console.warn(`rebuildAllPublishedPages error: ${e.message}`));
       }
 
       return reply.send({ success: true });
