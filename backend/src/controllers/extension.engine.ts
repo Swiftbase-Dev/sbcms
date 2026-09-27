@@ -79,6 +79,9 @@ export function validateManifest(raw: any): { valid: boolean; error?: string; ma
       permissions: permissions as ExtensionPermission[],
       homepage: raw.homepage,
       repository: raw.repository,
+      main: raw.main,
+      entry: raw.entry,
+      files: Array.isArray(raw.files) ? raw.files : [],
       widgets: Array.isArray(raw.widgets) ? raw.widgets : [],
       routes: Array.isArray(raw.routes) ? raw.routes : [],
     },
@@ -92,6 +95,7 @@ export async function fetchGitManifest(gitUrl: string, ref = "main"): Promise<{
   manifest: ExtensionManifest;
   permissionDetails: Array<{ permission: ExtensionPermission; title: string; description: string }>;
   sourceType: "github" | "gitlab" | "local" | "generic";
+  files?: Record<string, string>;
 }> {
   const trimmed = gitUrl.trim();
   let rawJson = "";
@@ -196,10 +200,53 @@ export async function fetchGitManifest(gitUrl: string, ref = "main"): Promise<{
     description: SUPPORTED_PERMISSIONS[perm]?.description || "General extension capability",
   }));
 
+  // Collect files declared by the manifest to download
+  const filesToFetch: string[] = [];
+  if (manifest.entry) filesToFetch.push(manifest.entry);
+  if (manifest.main) filesToFetch.push(manifest.main);
+  if (Array.isArray(manifest.files)) filesToFetch.push(...manifest.files);
+  if (Array.isArray(manifest.widgets)) {
+    for (const w of manifest.widgets) {
+      if (w.script) filesToFetch.push(w.script);
+    }
+  }
+
+  const extensionFiles: Record<string, string> = {};
+  const uniqueFiles = Array.from(new Set(filesToFetch)).filter(Boolean);
+
+  for (const relPath of uniqueFiles) {
+    if (sourceType === "local" && localDir) {
+      const fullPath = path.join(localDir, relPath);
+      if (fs.existsSync(fullPath)) {
+        extensionFiles[relPath] = fs.readFileSync(fullPath, "utf-8");
+      }
+    } else if (sourceType === "github") {
+      const githubMatch = trimmed.match(/github\.com\/([^/]+)\/([^/.]+)(?:\.git)?/i);
+      if (githubMatch) {
+        const [, owner, repo] = githubMatch;
+        const candidateUrls = [
+          `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${relPath}`,
+          `https://raw.githubusercontent.com/${owner}/${repo}/master/${relPath}`,
+          `https://raw.githubusercontent.com/${owner}/${repo}/main/${relPath}`,
+        ];
+        for (const fileUrl of candidateUrls) {
+          try {
+            const fRes = await fetch(fileUrl);
+            if (fRes.ok) {
+              extensionFiles[relPath] = await fRes.text();
+              break;
+            }
+          } catch {}
+        }
+      }
+    }
+  }
+
   return {
     manifest,
     permissionDetails,
     sourceType,
+    files: extensionFiles,
   };
 }
 

@@ -200,15 +200,20 @@ export interface ExtensionManifest {
   permissions: ExtensionPermission[];
   homepage?: string;
   repository?: string;
+  main?: string;
+  entry?: string;
+  files?: string[];
   widgets?: Array<{
     id: string;
     label: string;
     icon?: string;
     description?: string;
+    script?: string;
   }>;
   routes?: Array<{
     path: string;
     title: string;
+    component?: string;
   }>;
 }
 

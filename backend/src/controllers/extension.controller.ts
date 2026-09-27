@@ -74,10 +74,10 @@ export function registerExtensionRoutes(app: FastifyInstance) {
         return reply.status(400).send({ message: "Explicit user consent to permissions is required to install this extension" });
       }
 
-      const { manifest } = await fetchGitManifest(gitUrl, ref || "main");
+      const { manifest, files } = await fetchGitManifest(gitUrl, ref || "main");
       
       // Store extension bundle in Object Storage
-      await installExtensionBundle(manifest);
+      await installExtensionBundle(manifest, files);
 
       const database = getDb();
       const existingRes = await database("cms_extensions").where({ id: manifest.id }).execute();
