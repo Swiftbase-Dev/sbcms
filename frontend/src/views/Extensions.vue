@@ -103,14 +103,22 @@
             ID: {{ ext.id }}
           </div>
           <div class="flex items-center gap-2">
-            <button
+            <router-link
               v-if="ext.id === 'ebook-distribution'"
-              @click="openEbookModal"
+              to="/extensions/ebook-distribution"
               class="btn btn-sm btn-primary text-white text-xs font-bold rounded-xl px-4 shadow-sm"
             >
               <font-awesome-icon :icon="['fas', 'sliders']" />
               Manage Distribution
-            </button>
+            </router-link>
+            <router-link
+              v-if="ext.id === 'ebook-preview'"
+              to="/extensions/ebook-previews"
+              class="btn btn-sm btn-primary text-white text-xs font-bold rounded-xl px-4 shadow-sm"
+            >
+              <font-awesome-icon :icon="['fas', 'book-open']" />
+              Manage Previews
+            </router-link>
             <button
               @click="uninstallExtension(ext)"
               class="btn btn-sm btn-ghost text-rose-500 hover:bg-rose-500/10 text-xs font-bold rounded-xl px-3"

@@ -263,3 +263,35 @@ export interface EbookDistribution {
   createdAt?: string;
 }
 
+export interface EbookPreview {
+  id: string;
+  productId: string;
+  title: string;
+  author: string;
+  coverImage?: string;
+  sourceFormat?: 'epub' | 'pdf' | 'manual';
+  sourceFileUrl?: string;
+  extractionConfig?: {
+    mode: 'chapters' | 'pages';
+    count: number;
+  };
+  pages: string[]; // Formatted page text/html segments
+  ctaText?: string;
+  ctaUrl?: string;
+  viewsCount?: number;
+  readsCount?: number;
+  clicksCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface EbookPreviewEvent {
+  id: string;
+  previewId: string;
+  eventType: 'view' | 'page_turn' | 'cta_click';
+  pageNumber?: number;
+  sessionId?: string;
+  createdAt?: string;
+}
+
+

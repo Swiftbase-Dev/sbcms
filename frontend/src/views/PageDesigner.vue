@@ -530,6 +530,23 @@
 
                 <div class="form-control">
                   <label class="label p-0 pb-1">
+                    <span class="label-text text-[10px] font-black uppercase opacity-40">Select Configured Preview</span>
+                  </label>
+                  <select
+                    v-model="selectedBlock.attributes['data-preview-id']"
+                    @change="onPreviewSelect(selectedBlock.attributes['data-preview-id'])"
+                    class="select select-bordered select-xs w-full rounded-lg font-bold text-xs dark:bg-slate-800"
+                  >
+                    <option value="">-- Choose from Previews --</option>
+                    <option v-for="p in configuredPreviews" :key="p.id" :value="p.id">
+                      {{ p.title }} ({{ p.pages?.length || 0 }} pages)
+                    </option>
+                  </select>
+                  <span class="text-[9px] text-slate-400 mt-1">Managed under Extensions &rarr; E-book Previews</span>
+                </div>
+
+                <div class="form-control">
+                  <label class="label p-0 pb-1">
                     <span class="label-text text-[10px] font-black uppercase opacity-40">Book Title</span>
                   </label>
                   <input
@@ -566,27 +583,38 @@
 
                 <div class="form-control">
                   <label class="label p-0 pb-1">
-                    <span class="label-text text-[10px] font-black uppercase opacity-40">Sample Text Excerpt</span>
+                    <span class="label-text text-[10px] font-black uppercase opacity-40">CTA Button Text</span>
                   </label>
-                  <textarea
-                    v-model="selectedBlock.attributes['data-sample-content']"
-                    rows="4"
-                    class="textarea textarea-bordered text-xs rounded-xl w-full dark:bg-slate-800"
-                    placeholder="Enter chapter text or sample excerpt..."
-                  ></textarea>
+                  <input
+                    type="text"
+                    v-model="selectedBlock.attributes['data-cta-text']"
+                    class="input input-bordered input-sm text-xs rounded-xl w-full dark:bg-slate-800"
+                    placeholder="Buy Full Book"
+                  />
                 </div>
 
                 <div class="form-control">
                   <label class="label p-0 pb-1">
-                    <span class="label-text text-[10px] font-black uppercase opacity-40">Link to Store Product (Optional)</span>
+                    <span class="label-text text-[10px] font-black uppercase opacity-40">CTA Destination URL</span>
                   </label>
                   <input
                     type="text"
-                    v-model="selectedBlock.attributes['data-product-id']"
+                    v-model="selectedBlock.attributes['data-cta-url']"
                     class="input input-bordered input-sm text-xs rounded-xl w-full dark:bg-slate-800"
-                    placeholder="Product ID for purchase button"
+                    placeholder="/store"
                   />
                 </div>
+              </div>
+
+              <!-- E-book Redeem Widget Settings -->
+              <div v-if="selectedBlock.type === 'ebook-redeem-widget'" class="space-y-4 p-3 bg-slate-50 dark:bg-slate-850 border border-base-200 dark:border-slate-800 rounded-2xl">
+                <div class="flex items-center gap-1.5 pb-1 border-b border-base-200 dark:border-slate-800">
+                  <font-awesome-icon :icon="['fas', 'ticket']" class="w-3 h-3 text-primary" />
+                  <span class="text-[10px] font-black uppercase tracking-wider text-slate-500">Redemption Card Widget</span>
+                </div>
+                <p class="text-[11px] text-slate-500">
+                  Allows visitors to enter a single-use card code (e.g. <code>READ-XXXX-XXXX</code>) and instantly download their complimentary e-book directly on this page without logging in.
+                </p>
               </div>
 
               <!-- Input Fields Validation and Details -->
@@ -2052,12 +2080,25 @@ const categories = computed(() => [
           tagName: "div",
           classes: ["cms-ebook-preview-widget", "my-8"],
           attributes: {
+            "data-preview-id": "",
             "data-book-title": "Sample Book Preview",
             "data-author": "Author Name",
             "data-cover-image": "",
-            "data-sample-content": "Chapter 1: The Beginning\n\nThe morning mist hung low over the quiet valley as the ancient library doors slowly creaked open. Inside, rows upon rows of forgotten tales waited in silence...",
-            "data-product-id": ""
+            "data-cta-text": "Buy Full Book",
+            "data-cta-url": "/store"
           },
+          children: []
+        }
+      },
+      {
+        id: "ebook-redeem-widget",
+        label: "E-book Card Redeem",
+        icon: ["fas", "ticket"],
+        template: {
+          type: "ebook-redeem-widget",
+          tagName: "div",
+          classes: ["cms-ebook-redeem-widget", "my-8"],
+          attributes: {},
           children: []
         }
       }
@@ -2664,9 +2705,38 @@ const publishPage = async () => {
   }
 };
 
+const configuredPreviews = ref<any[]>([]);
+
+const fetchPreviews = async () => {
+  try {
+    const res = await fetch("/api/ebooks/previews");
+    if (res.ok) {
+      configuredPreviews.value = await res.json();
+    }
+  } catch (err) {
+    console.error("Failed to load configured previews:", err);
+  }
+};
+
+const onPreviewSelect = (previewId: string) => {
+  if (!selectedBlock.value) return;
+  const prev = configuredPreviews.value.find(p => p.id === previewId);
+  if (prev) {
+    selectedBlock.value.attributes = selectedBlock.value.attributes || {};
+    selectedBlock.value.attributes['data-preview-id'] = prev.id;
+    selectedBlock.value.attributes['data-book-title'] = prev.title;
+    selectedBlock.value.attributes['data-author'] = prev.author;
+    selectedBlock.value.attributes['data-cover-image'] = prev.coverImage || "";
+    selectedBlock.value.attributes['data-cta-text'] = prev.ctaText || "Buy Full Book";
+    selectedBlock.value.attributes['data-cta-url'] = prev.ctaUrl || `/store`;
+    saveHistoryState();
+  }
+};
+
 onMounted(async () => {
   await fetchSettings();
   await fetchPage();
+  await fetchPreviews();
   
   // Set initial state in history stack
   historyStack.value = [JSON.stringify(blocks.value)];

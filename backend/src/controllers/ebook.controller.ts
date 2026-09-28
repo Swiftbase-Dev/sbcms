@@ -1,7 +1,8 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import crypto from "crypto";
+import zlib from "zlib";
 import { db, Storage } from "swiftbase-admin-sdk";
-import type { EbookFile, EbookDistribution, EbookFormat } from "swiftbase-cms-shared";
+import type { EbookFile, EbookDistribution, EbookFormat, EbookPreview } from "swiftbase-cms-shared";
 import { sendPostmarkEmail, formatFreeEbookNotificationEmail } from "./email.helper.js";
 
 function getDb() {
@@ -11,12 +12,140 @@ function getDb() {
 
 function getStorageInstance() {
   const bucket = process.env.SWIFTBASE_STORAGE_BUCKET || "swiftbase-cms-storage";
-  const endpoint = `${(process.env.SWIFTBASE_URL || process.env.SWIFTBASE_API_URL || "https://api.swiftbase.io").replace(/\/$/, "")}/storage`;
+  const endpoint = `${(process.env.SWIFTBASE_URL || process.env.SWIFTBASE_BASE_URL || process.env.SWIFTBASE_API_URL || "https://api.swiftbase.io").replace(/\/$/, "")}/storage`;
   return new Storage({ bucket, endpoint });
 }
 
+/**
+ * Basic zip reader to extract files from an EPUB buffer without heavy external binaries.
+ */
+function extractFilesFromZip(buffer: Buffer): Record<string, string> {
+  const files: Record<string, string> = {};
+  let offset = 0;
 
-function generateRandomCode(prefix = "READ"): string {
+  while (offset < buffer.length - 4) {
+    const signature = buffer.readUInt32LE(offset);
+    if (signature !== 0x04034b50) break; // Local file header signature
+
+    const compMethod = buffer.readUInt16LE(offset + 8);
+    const compSize = buffer.readUInt32LE(offset + 18);
+    const uncompSize = buffer.readUInt32LE(offset + 22);
+    const nameLen = buffer.readUInt16LE(offset + 26);
+    const extraLen = buffer.readUInt16LE(offset + 28);
+
+    const nameOffset = offset + 30;
+    const fileName = buffer.toString("utf8", nameOffset, nameOffset + nameLen);
+    const dataOffset = nameOffset + nameLen + extraLen;
+
+    try {
+      const compData = buffer.subarray(dataOffset, dataOffset + compSize);
+      let contentBuffer: Buffer;
+      if (compMethod === 0) {
+        contentBuffer = compData;
+      } else if (compMethod === 8) {
+        contentBuffer = zlib.inflateRawSync(compData);
+      } else {
+        contentBuffer = Buffer.from("");
+      }
+
+      if (fileName.match(/\.(html|xhtml|xml|txt|opf|ncx)$/i)) {
+        files[fileName] = contentBuffer.toString("utf8");
+      }
+    } catch {}
+
+    offset = dataOffset + compSize;
+  }
+
+  return files;
+}
+
+/**
+ * Extract clean HTML/text chapters from an EPUB buffer.
+ */
+export function extractEpubChapters(epubBuffer: Buffer, maxChapters = 2): string[] {
+  try {
+    const files = extractFilesFromZip(epubBuffer);
+    const htmlFiles = Object.entries(files)
+      .filter(([name]) => name.match(/\.(html|xhtml)$/i) && !name.toLowerCase().includes("cover") && !name.toLowerCase().includes("nav"))
+      .sort((a, b) => a[0].localeCompare(b[0]));
+
+    if (htmlFiles.length === 0) {
+      // Fallback: extract plain text from all XML/HTML
+      const allText = Object.values(files)
+        .map(c => c.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim())
+        .filter(t => t.length > 50);
+      return allText.slice(0, maxChapters);
+    }
+
+    const chapters: string[] = [];
+    for (const [, rawContent] of htmlFiles.slice(0, maxChapters)) {
+      // Strip styles and scripts, extract body content
+      let cleaned = rawContent
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
+        .replace(/<link\b[^>]*>/gi, "");
+
+      const bodyMatch = cleaned.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      if (bodyMatch) {
+        cleaned = bodyMatch[1];
+      }
+
+      cleaned = cleaned.trim();
+      if (cleaned.length > 0) {
+        chapters.push(cleaned);
+      }
+    }
+
+    return chapters;
+  } catch (err: any) {
+    return [];
+  }
+}
+
+/**
+ * Split text/HTML content into page spreads (~350 words per page).
+ */
+export function paginateContent(content: string, wordsPerPage = 320): string[] {
+  // Strip heavy HTML markup to paragraphs
+  const cleanParagraphs = content
+    .replace(/<\/?(div|section|article|main|header)[^>]*>/gi, "")
+    .replace(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/gi, "\n\n### $1\n\n")
+    .replace(/<p[^>]*>/gi, "")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .split(/\n\s*\n/)
+    .map(p => p.trim())
+    .filter(Boolean);
+
+  const pages: string[] = [];
+  let currentPage: string[] = [];
+  let currentWordCount = 0;
+
+  for (const para of cleanParagraphs) {
+    const wordCount = para.split(/\s+/).length;
+    if (currentWordCount + wordCount > wordsPerPage && currentPage.length > 0) {
+      pages.push(currentPage.join("\n\n"));
+      currentPage = [para];
+      currentWordCount = wordCount;
+    } else {
+      currentPage.push(para);
+      currentWordCount += wordCount;
+    }
+  }
+
+  if (currentPage.length > 0) {
+    pages.push(currentPage.join("\n\n"));
+  }
+
+  // Ensure even page count (for two-page spread: Page 1 & 2, 3 & 4, etc.)
+  if (pages.length % 2 !== 0) {
+    pages.push("*(End of Excerpt)*");
+  }
+
+  return pages.length > 0 ? pages : ["Welcome to this preview sample. Full content available in the store!"];
+}
+
+export function generateRandomCode(prefix = "READ"): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let part1 = "";
   let part2 = "";
@@ -509,6 +638,296 @@ export function registerEbookRoutes(app: FastifyInstance) {
     } catch (err: any) {
       request.log.error(err, "File download failed");
       return reply.status(500).send({ message: err.message || "Failed to download file" });
+    }
+  });
+
+  // ==========================================
+  // 5. E-BOOK PREVIEWS & READER TRACKING
+  // ==========================================
+
+  // List all previews
+  app.get("/ebooks/previews", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const database = getDb();
+      const res = await database("cms_ebook_previews").execute();
+      const list = (res.data || []).map((row: any) => ({
+        ...row,
+        extractionConfig: row.extractionConfig ? JSON.parse(row.extractionConfig) : undefined,
+        pages: row.pages ? JSON.parse(row.pages) : [],
+        viewsCount: Number(row.viewsCount) || 0,
+        readsCount: Number(row.readsCount) || 0,
+        clicksCount: Number(row.clicksCount) || 0,
+      }));
+      return reply.send(list);
+    } catch (err: any) {
+      request.log.error(err, "Failed to list ebook previews");
+      return reply.status(500).send({ message: err.message || "Failed to list ebook previews" });
+    }
+  });
+
+  // Auto-extract preview pages from an uploaded product e-book file
+  app.post("/ebooks/previews/extract", async (
+    request: FastifyRequest<{
+      Body: {
+        productId: string;
+        mode?: "chapters" | "pages";
+        count?: number;
+      };
+    }>,
+    reply: FastifyReply
+  ) => {
+    try {
+      const { productId, mode = "chapters", count = 2 } = request.body || {};
+      if (!productId) {
+        return reply.status(400).send({ message: "productId is required" });
+      }
+
+      const database = getDb();
+      // Look for an EPUB or PDF file for this product
+      const filesRes = await database("cms_ebook_files").where({ productId }).execute();
+      const files = filesRes.data || [];
+      const epubFile = files.find((f: any) => f.format === "epub");
+      const anyFile = epubFile || files[0];
+
+      if (!anyFile) {
+        return reply.status(404).send({ message: "No uploaded e-book file found for this product. Please upload an EPUB file in Book Formats first." });
+      }
+
+      // Download file from storage
+      const storage = getStorageInstance();
+      const objRes = await storage.getObject(anyFile.fileUrl);
+      const arrayBuffer = await objRes.arrayBuffer();
+      const fileBuffer = Buffer.from(arrayBuffer);
+
+      let extractedPages: string[] = [];
+
+      if (anyFile.format === "epub") {
+        const chapters = extractEpubChapters(fileBuffer, count || 2);
+        const combined = chapters.join("\n\n---\n\n");
+        extractedPages = paginateContent(combined);
+      } else {
+        // Fallback text sample
+        extractedPages = [
+          `Sample Excerpt from ${anyFile.fileName}\n\nChapter 1\n\nThe story unfolds across the pages of this book...`,
+          `Chapter 1 (Continued)\n\nDiscover the rest of this journey by getting the complete edition in the store.`
+        ];
+      }
+
+      return reply.send({
+        success: true,
+        sourceFormat: anyFile.format,
+        sourceFileName: anyFile.fileName,
+        sourceFileUrl: anyFile.fileUrl,
+        pageCount: extractedPages.length,
+        pages: extractedPages,
+      });
+    } catch (err: any) {
+      request.log.error(err, "Failed to extract ebook preview");
+      return reply.status(500).send({ message: err.message || "Failed to extract ebook sample content" });
+    }
+  });
+
+  // Create or update a preview
+  app.post("/ebooks/previews", async (
+    request: FastifyRequest<{
+      Body: Partial<EbookPreview>;
+    }>,
+    reply: FastifyReply
+  ) => {
+    try {
+      const body = request.body || {};
+      const { productId, title, author, coverImage, pages, ctaText, ctaUrl, extractionConfig } = body;
+
+      if (!productId || !title) {
+        return reply.status(400).send({ message: "productId and title are required" });
+      }
+
+      const database = getDb();
+      const id = body.id || `ebp-${crypto.randomUUID()}`;
+      const now = new Date().toISOString();
+
+      const previewRecord = {
+        id,
+        productId,
+        title,
+        author: author || "Author",
+        coverImage: coverImage || "",
+        sourceFormat: body.sourceFormat || "manual",
+        sourceFileUrl: body.sourceFileUrl || "",
+        extractionConfig: extractionConfig ? JSON.stringify(extractionConfig) : JSON.stringify({ mode: "chapters", count: 2 }),
+        pages: Array.isArray(pages) ? JSON.stringify(pages) : JSON.stringify([]),
+        ctaText: ctaText || "Buy Full Book",
+        ctaUrl: ctaUrl || `/store`,
+        updatedAt: now,
+      };
+
+      const existingRes = await database("cms_ebook_previews").where({ id }).execute();
+      if (existingRes.data && existingRes.data.length > 0) {
+        await database("cms_ebook_previews").where({ id }).update(previewRecord).execute();
+      } else {
+        await database("cms_ebook_previews").insert({
+          ...previewRecord,
+          viewsCount: 0,
+          readsCount: 0,
+          clicksCount: 0,
+          createdAt: now,
+        }).execute();
+      }
+
+      return reply.send({
+        success: true,
+        preview: {
+          ...previewRecord,
+          extractionConfig: JSON.parse(previewRecord.extractionConfig),
+          pages: JSON.parse(previewRecord.pages),
+        },
+      });
+    } catch (err: any) {
+      request.log.error(err, "Failed to save ebook preview");
+      return reply.status(500).send({ message: err.message || "Failed to save preview" });
+    }
+  });
+
+  // Get single preview
+  app.get("/ebooks/previews/:id", async (
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply
+  ) => {
+    try {
+      const { id } = request.params;
+      const database = getDb();
+      const res = await database("cms_ebook_previews").where({ id }).execute();
+      const preview = res.data && res.data[0];
+
+      if (!preview) {
+        return reply.status(404).send({ message: "E-book preview not found" });
+      }
+
+      return reply.send({
+        ...preview,
+        extractionConfig: preview.extractionConfig ? JSON.parse(preview.extractionConfig) : undefined,
+        pages: preview.pages ? JSON.parse(preview.pages) : [],
+        viewsCount: Number(preview.viewsCount) || 0,
+        readsCount: Number(preview.readsCount) || 0,
+        clicksCount: Number(preview.clicksCount) || 0,
+      });
+    } catch (err: any) {
+      request.log.error(err, `Failed to get ebook preview ${request.params.id}`);
+      return reply.status(500).send({ message: err.message || "Failed to get preview" });
+    }
+  });
+
+  // Delete preview
+  app.delete("/ebooks/previews/:id", async (
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply
+  ) => {
+    try {
+      const { id } = request.params;
+      const database = getDb();
+      await database("cms_ebook_previews").where({ id }).delete().execute();
+      await database("cms_ebook_preview_events").where({ previewId: id }).delete().execute();
+      return reply.send({ success: true, id });
+    } catch (err: any) {
+      request.log.error(err, `Failed to delete ebook preview ${request.params.id}`);
+      return reply.status(500).send({ message: err.message || "Failed to delete preview" });
+    }
+  });
+
+  // Public Telemetry & Tracking endpoint
+  app.post("/ebooks/previews/:id/track", async (
+    request: FastifyRequest<{
+      Params: { id: string };
+      Body: {
+        eventType: "view" | "page_turn" | "cta_click";
+        pageNumber?: number;
+        sessionId?: string;
+      };
+    }>,
+    reply: FastifyReply
+  ) => {
+    try {
+      const { id } = request.params;
+      const { eventType, pageNumber = 1, sessionId } = request.body || {};
+      const database = getDb();
+
+      const res = await database("cms_ebook_previews").where({ id }).execute();
+      const preview = res.data && res.data[0];
+      if (!preview) {
+        return reply.status(404).send({ message: "Preview not found" });
+      }
+
+      const now = new Date().toISOString();
+      await database("cms_ebook_preview_events").insert({
+        id: `ev-${crypto.randomUUID()}`,
+        previewId: id,
+        eventType,
+        pageNumber: Number(pageNumber) || 1,
+        sessionId: sessionId || "anonymous",
+        createdAt: now,
+      }).execute();
+
+      const updates: any = {};
+      if (eventType === "view") {
+        updates.viewsCount = (Number(preview.viewsCount) || 0) + 1;
+      } else if (eventType === "page_turn") {
+        updates.readsCount = (Number(preview.readsCount) || 0) + 1;
+      } else if (eventType === "cta_click") {
+        updates.clicksCount = (Number(preview.clicksCount) || 0) + 1;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await database("cms_ebook_previews").where({ id }).update(updates).execute();
+      }
+
+      return reply.send({ success: true });
+    } catch (err: any) {
+      request.log.error(err, "Failed to track preview event");
+      return reply.status(200).send({ success: false }); // Soft fail for telemetry
+    }
+  });
+
+  // Aggregated analytics report for a preview
+  app.get("/ebooks/previews/:id/analytics", async (
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply
+  ) => {
+    try {
+      const { id } = request.params;
+      const database = getDb();
+
+      const prevRes = await database("cms_ebook_previews").where({ id }).execute();
+      const preview = prevRes.data && prevRes.data[0];
+      if (!preview) return reply.status(404).send({ message: "Preview not found" });
+
+      const eventsRes = await database("cms_ebook_preview_events").where({ previewId: id }).execute();
+      const events = eventsRes.data || [];
+
+      // Calculate pages drop-off
+      const pagesDropOff: Record<number, number> = {};
+      for (const ev of events) {
+        if (ev.eventType === "page_turn" && ev.pageNumber) {
+          pagesDropOff[ev.pageNumber] = (pagesDropOff[ev.pageNumber] || 0) + 1;
+        }
+      }
+
+      const totalViews = Number(preview.viewsCount) || 0;
+      const totalClicks = Number(preview.clicksCount) || 0;
+      const totalPageFlips = Number(preview.readsCount) || 0;
+      const ctr = totalViews > 0 ? ((totalClicks / totalViews) * 100).toFixed(1) : "0.0";
+
+      return reply.send({
+        previewId: id,
+        title: preview.title,
+        totalViews,
+        totalPageFlips,
+        totalClicks,
+        clickThroughRate: `${ctr}%`,
+        pagesDropOff,
+      });
+    } catch (err: any) {
+      request.log.error(err, "Failed to get preview analytics");
+      return reply.status(500).send({ message: err.message || "Failed to load analytics" });
     }
   });
 }

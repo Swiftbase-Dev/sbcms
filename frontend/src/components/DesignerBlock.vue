@@ -154,15 +154,15 @@
       </div>
     </div>
 
-    <!-- E-book Preview Dynamic Widget -->
+    <!-- E-book Preview Dynamic Widget (Two-Page Spread View) -->
     <div
       v-else-if="block.type === 'ebook-preview-widget'"
       :class="[classesString, 'cms-ebook-preview-widget']"
       :style="computedStyles"
     >
-      <div class="max-w-2xl mx-auto p-6 bg-white dark:bg-slate-900 border border-base-200 dark:border-slate-800 rounded-3xl shadow-sm space-y-5">
+      <div class="max-w-4xl mx-auto p-6 bg-white dark:bg-slate-900 border border-base-200 dark:border-slate-800 rounded-3xl shadow-sm space-y-5">
         <div class="flex flex-col sm:flex-row items-center sm:items-start gap-5 pb-5 border-b border-base-200 dark:border-slate-800">
-          <div class="w-20 h-28 shrink-0 rounded-xl bg-slate-100 dark:bg-slate-800 overflow-hidden shadow-sm flex items-center justify-center">
+          <div class="w-16 h-24 shrink-0 rounded-xl bg-slate-100 dark:bg-slate-800 overflow-hidden shadow-sm flex items-center justify-center">
             <img v-if="block.attributes?.['data-cover-image']" :src="block.attributes['data-cover-image']" class="w-full h-full object-cover" />
             <div v-else class="text-center p-2 text-slate-400">
               <font-awesome-icon :icon="['fas', 'book-open']" class="text-xl mb-1 opacity-40" />
@@ -170,26 +170,67 @@
             </div>
           </div>
           <div class="flex-1 text-center sm:text-left">
-            <span class="badge badge-primary badge-sm font-black uppercase text-[8px] tracking-widest mb-1.5">E-book Sample Reader</span>
+            <span class="badge badge-primary badge-sm font-black uppercase text-[8px] tracking-widest mb-1.5">Two-Page Spread Reader</span>
             <h4 class="font-black text-lg text-slate-900 dark:text-white leading-tight">
               {{ block.attributes?.['data-book-title'] || 'Sample Book Title' }}
             </h4>
             <p class="text-xs text-slate-400 mt-0.5">by {{ block.attributes?.['data-author'] || 'Author Name' }}</p>
-            <div class="flex items-center justify-center sm:justify-start gap-1.5 mt-3 text-[10px]">
+            <div class="flex items-center justify-center sm:justify-start gap-1.5 mt-2.5 text-[10px]">
               <span class="btn btn-xs btn-outline rounded-lg text-[9px] pointer-events-none">A-</span>
               <span class="btn btn-xs btn-outline rounded-lg text-[9px] pointer-events-none">A+</span>
               <span class="btn btn-xs btn-outline rounded-lg text-[9px] pointer-events-none">🌓 Theme</span>
             </div>
           </div>
+          <div class="shrink-0">
+            <span class="btn btn-xs btn-primary text-white font-bold rounded-xl px-4 pointer-events-none">
+              {{ block.attributes?.['data-cta-text'] || 'Buy Full Book' }} &rarr;
+            </span>
+          </div>
         </div>
 
-        <div class="prose max-w-none text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-serif line-clamp-6">
-          {{ block.attributes?.['data-sample-content'] || 'Chapter 1: The Beginning... (Configure sample content in properties inspector)' }}
+        <!-- 2-Page Book Spread Display on Canvas -->
+        <div class="grid grid-cols-2 gap-6 p-6 bg-slate-50 dark:bg-slate-950/60 rounded-2xl border border-slate-100 dark:border-slate-800/80 relative min-h-[180px]">
+          <div class="absolute top-4 bottom-4 left-1/2 -ml-[1px] w-[2px] bg-slate-200 dark:bg-slate-800"></div>
+
+          <!-- Left Page Sample -->
+          <div class="flex flex-col justify-between text-xs font-serif leading-relaxed text-slate-600 dark:text-slate-300">
+            <p>Chapter 1: The Beginning.<br/><br/>The quiet dawn illuminated the forgotten library halls. Endless shelves held stories waiting to be discovered...</p>
+            <span class="text-center font-mono text-[9px] text-slate-400">Page 1</span>
+          </div>
+
+          <!-- Right Page Sample -->
+          <div class="flex flex-col justify-between text-xs font-serif leading-relaxed text-slate-600 dark:text-slate-300">
+            <p>Secrets carved into parchment whispered in the silence. The journey of thousands of miles begins with a single turn of the page...</p>
+            <span class="text-center font-mono text-[9px] text-slate-400">Page 2</span>
+          </div>
         </div>
 
-        <div class="pt-4 border-t border-base-200 dark:border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
-          <span>Interactive Preview Widget</span>
-          <span class="text-primary font-bold">Buy Full Book &rarr;</span>
+        <!-- Navigation Flip Footer Bar -->
+        <div class="flex items-center justify-between pt-2 border-t border-base-200 dark:border-slate-800 text-[10px] text-slate-400">
+          <span class="btn btn-xs btn-outline rounded-lg pointer-events-none">&larr; Previous</span>
+          <span class="font-mono font-bold">Pages 1-2 of 8</span>
+          <span class="btn btn-xs btn-primary text-white rounded-lg pointer-events-none">Next &rarr;</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- E-book Card Redemption Widget -->
+    <div
+      v-else-if="block.type === 'ebook-redeem-widget'"
+      :class="[classesString, 'cms-ebook-redeem-widget']"
+      :style="computedStyles"
+    >
+      <div class="max-w-md mx-auto p-6 bg-white dark:bg-slate-900 border border-base-200 dark:border-slate-800 rounded-3xl shadow-sm text-center space-y-4">
+        <div class="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center text-xl mx-auto">
+          <font-awesome-icon :icon="['fas', 'ticket']" />
+        </div>
+        <div>
+          <h4 class="font-black text-lg text-slate-900 dark:text-white">Redeem E-book Card</h4>
+          <p class="text-xs text-slate-400 mt-1">Enter your card code to unlock your complimentary edition.</p>
+        </div>
+        <div class="space-y-3">
+          <input type="text" placeholder="READ-XXXX-XXXX" class="input input-sm input-bordered w-full rounded-xl text-center font-mono font-bold pointer-events-none" disabled />
+          <button class="btn btn-sm btn-primary w-full text-white font-bold rounded-xl text-xs uppercase pointer-events-none">Unlock E-book &rarr;</button>
         </div>
       </div>
     </div>

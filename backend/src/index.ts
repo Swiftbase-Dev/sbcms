@@ -267,6 +267,40 @@ async function start() {
             "expiresAt" VARCHAR(255),
             "createdAt" VARCHAR(255)
           )`
+        },
+        {
+          dbname: 'cms_ebook_previews',
+          name: 'CMS Ebook Previews',
+          ddl: `CREATE TABLE IF NOT EXISTS "cms_ebook_previews" (
+            "id" VARCHAR(255) PRIMARY KEY,
+            "productId" VARCHAR(255),
+            "title" VARCHAR(255),
+            "author" VARCHAR(255),
+            "coverImage" VARCHAR(500),
+            "sourceFormat" VARCHAR(50),
+            "sourceFileUrl" VARCHAR(500),
+            "extractionConfig" TEXT,
+            "pages" TEXT,
+            "ctaText" VARCHAR(100),
+            "ctaUrl" VARCHAR(500),
+            "viewsCount" INTEGER DEFAULT 0,
+            "readsCount" INTEGER DEFAULT 0,
+            "clicksCount" INTEGER DEFAULT 0,
+            "createdAt" VARCHAR(255),
+            "updatedAt" VARCHAR(255)
+          )`
+        },
+        {
+          dbname: 'cms_ebook_preview_events',
+          name: 'CMS Ebook Preview Events',
+          ddl: `CREATE TABLE IF NOT EXISTS "cms_ebook_preview_events" (
+            "id" VARCHAR(255) PRIMARY KEY,
+            "previewId" VARCHAR(255),
+            "eventType" VARCHAR(50),
+            "pageNumber" INTEGER DEFAULT 1,
+            "sessionId" VARCHAR(255),
+            "createdAt" VARCHAR(255)
+          )`
         }
       ];
 

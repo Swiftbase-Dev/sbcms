@@ -87,11 +87,52 @@
                 <span v-if="!isCollapsed">Store</span>
               </router-link>
             </li>
-            <li>
-              <router-link to="/extensions" class="flex items-center rounded-xl hover:bg-white/5 transition-all duration-300" :class="[isCollapsed ? 'p-3 justify-center tooltip tooltip-right z-30' : 'gap-4 p-3']" :data-tip="isCollapsed ? 'Extensions' : null" active-class="!bg-primary !text-white shadow-lg shadow-primary/20">
-                <font-awesome-icon :icon="['fas', 'puzzle-piece']" class="w-5 h-5 shrink-0" />
-                <span v-if="!isCollapsed">Extensions</span>
-              </router-link>
+            <!-- Extensions Parent Item with Collapsible Submenu / Flyout -->
+            <li class="relative group">
+              <div class="flex items-center justify-between rounded-xl hover:bg-white/5 transition-all duration-300 cursor-pointer" :class="[isCollapsed ? 'p-3 justify-center tooltip tooltip-right z-30' : 'p-3', isExtensionsRoute ? 'bg-primary/20 text-white font-black' : '']" :data-tip="isCollapsed ? 'Extensions' : null" @click="toggleExtensionsCollapse">
+                <router-link to="/extensions" class="flex items-center gap-4 flex-1 select-none" @click.stop>
+                  <font-awesome-icon :icon="['fas', 'puzzle-piece']" class="w-5 h-5 shrink-0" />
+                  <span v-if="!isCollapsed">Extensions</span>
+                </router-link>
+                <button v-if="!isCollapsed" type="button" @click.stop="toggleExtensionsCollapse" class="text-xs opacity-50 hover:opacity-100 p-1">
+                  <font-awesome-icon :icon="['fas', extensionsMenuExpanded ? 'chevron-down' : 'chevron-right']" class="w-3 h-3 transition-transform duration-200" />
+                </button>
+              </div>
+
+              <!-- Submenu in expanded sidebar -->
+              <ul v-if="!isCollapsed && extensionsMenuExpanded" class="pl-9 pr-2 py-1 space-y-1 text-xs">
+                <li>
+                  <router-link to="/extensions" exact-active-class="text-primary font-black" class="block py-1.5 px-3 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors">
+                    Installed & Store
+                  </router-link>
+                </li>
+                <li>
+                  <router-link to="/extensions/ebook-previews" active-class="text-primary font-black bg-primary/10" class="block py-1.5 px-3 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors">
+                    E-book Previews
+                  </router-link>
+                </li>
+                <li>
+                  <router-link to="/extensions/ebook-distribution" active-class="text-primary font-black bg-primary/10" class="block py-1.5 px-3 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors">
+                    E-book Distribution
+                  </router-link>
+                </li>
+              </ul>
+
+              <!-- Flyout menu in collapsed sidebar mode -->
+              <div v-if="isCollapsed" class="hidden group-hover:block absolute left-full top-0 ml-2 w-48 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in slide-in-from-left-2 duration-150">
+                <div class="px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-white/5 mb-1">
+                  Extensions
+                </div>
+                <router-link to="/extensions" class="block py-1.5 px-3 rounded-xl hover:bg-white/5 text-xs text-slate-300 hover:text-white">
+                  All Extensions
+                </router-link>
+                <router-link to="/extensions/ebook-previews" class="block py-1.5 px-3 rounded-xl hover:bg-white/5 text-xs text-slate-300 hover:text-white">
+                  E-book Previews
+                </router-link>
+                <router-link to="/extensions/ebook-distribution" class="block py-1.5 px-3 rounded-xl hover:bg-white/5 text-xs text-slate-300 hover:text-white">
+                  E-book Distribution
+                </router-link>
+              </div>
             </li>
             <li>
               <router-link to="/settings" class="flex items-center rounded-xl hover:bg-white/5 transition-all duration-300" :class="[isCollapsed ? 'p-3 justify-center tooltip tooltip-right z-30' : 'gap-4 p-3']" :data-tip="isCollapsed ? 'Settings' : null" active-class="!bg-primary !text-white shadow-lg shadow-primary/20">
@@ -215,6 +256,14 @@ const isCollapsed = ref(localStorage.getItem("cms-sidebar-collapsed") === "true"
 const isDesignerRoute = computed(() => {
   return route.path.includes("/pages/edit/") || route.path.includes("/settings/edit-");
 });
+
+const isExtensionsRoute = computed(() => {
+  return route.path.startsWith("/extensions");
+});
+const extensionsMenuExpanded = ref(true);
+const toggleExtensionsCollapse = () => {
+  extensionsMenuExpanded.value = !extensionsMenuExpanded.value;
+};
 
 const isPublicRoute = computed(() => {
   return route.path.startsWith("/download") || route.path.startsWith("/redeem");

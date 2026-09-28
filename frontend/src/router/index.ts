@@ -9,6 +9,8 @@ import Settings from "../views/Settings.vue";
 import Profile from "../views/Profile.vue";
 import Gallery from "../views/Gallery.vue";
 import Extensions from "../views/Extensions.vue";
+import EbookPreviewsView from "../views/EbookPreviewsView.vue";
+import EbookDistributionView from "../views/EbookDistributionView.vue";
 import EbookDownload from "../views/EbookDownload.vue";
 
 const routes = [
@@ -20,6 +22,8 @@ const routes = [
   { path: "/blog/edit/:id", component: BlogEditor, props: true },
   { path: "/store", component: Store },
   { path: "/extensions", component: Extensions },
+  { path: "/extensions/ebook-previews", component: EbookPreviewsView },
+  { path: "/extensions/ebook-distribution", component: EbookDistributionView },
   { path: "/download/:token", component: EbookDownload },
   { path: "/redeem", component: EbookDownload },
   { path: "/settings/edit-navbar", component: PageDesigner, props: { id: "navbar" } },
