@@ -191,6 +191,31 @@ export type ExtensionPermission =
   | 'ui:designer:block'
   | 'routes:public';
 
+export interface ExtensionAdminPage {
+  id: string;
+  label: string;
+  icon?: string;
+  tag: string; // Custom Element Web Component tag name, e.g. "ext-ebook-distribution"
+  script: string; // Relative path to script bundle, e.g. "dist/admin.js"
+}
+
+export interface ExtensionWidget {
+  id: string;
+  label: string;
+  icon?: string | [string, string];
+  description?: string;
+  tag: string; // Custom Element Web Component tag name, e.g. "ext-ebook-preview"
+  script: string; // Relative path to script bundle, e.g. "dist/widget.js"
+  defaultAttributes?: Record<string, string>;
+}
+
+export interface ExtensionPublicRoute {
+  path: string;
+  title: string;
+  tag: string; // Custom Element Web Component tag name
+  script: string;
+}
+
 export interface ExtensionManifest {
   id: string;
   name: string;
@@ -203,18 +228,10 @@ export interface ExtensionManifest {
   main?: string;
   entry?: string;
   files?: string[];
-  widgets?: Array<{
-    id: string;
-    label: string;
-    icon?: string;
-    description?: string;
-    script?: string;
-  }>;
-  routes?: Array<{
-    path: string;
-    title: string;
-    component?: string;
-  }>;
+  adminPages?: ExtensionAdminPage[];
+  widgets?: ExtensionWidget[];
+  publicRoutes?: ExtensionPublicRoute[];
+  server?: string;
 }
 
 export interface CMSExtension {
@@ -231,67 +248,6 @@ export interface CMSExtension {
   settings?: Record<string, any>;
   createdAt?: string;
   updatedAt?: string;
-}
-
-export type EbookFormat = 'epub' | 'pdf' | 'mobi' | 'azw3';
-
-export interface EbookFile {
-  id: string;
-  productId: string;
-  format: EbookFormat;
-  fileUrl: string;
-  fileName: string;
-  fileSizeBytes: number;
-  createdAt?: string;
-}
-
-export interface EbookDistribution {
-  id: string;
-  token: string;
-  type: 'purchase' | 'free_copy' | 'offline_card';
-  code?: string;
-  productId: string;
-  productTitle?: string;
-  recipientName?: string;
-  recipientEmail?: string;
-  message?: string;
-  maxDownloads: number;
-  downloadCount: number;
-  isRedeemed: boolean;
-  redeemedAt?: string;
-  expiresAt?: string;
-  createdAt?: string;
-}
-
-export interface EbookPreview {
-  id: string;
-  productId: string;
-  title: string;
-  author: string;
-  coverImage?: string;
-  sourceFormat?: 'epub' | 'pdf' | 'manual';
-  sourceFileUrl?: string;
-  extractionConfig?: {
-    mode: 'chapters' | 'pages';
-    count: number;
-  };
-  pages: string[]; // Formatted page text/html segments
-  ctaText?: string;
-  ctaUrl?: string;
-  viewsCount?: number;
-  readsCount?: number;
-  clicksCount?: number;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface EbookPreviewEvent {
-  id: string;
-  previewId: string;
-  eventType: 'view' | 'page_turn' | 'cta_click';
-  pageNumber?: number;
-  sessionId?: string;
-  createdAt?: string;
 }
 
 

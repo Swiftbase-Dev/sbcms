@@ -521,100 +521,24 @@
                 </div>
               </div>
 
-              <!-- E-book Preview Widget Settings -->
-              <div v-if="selectedBlock.type === 'ebook-preview-widget'" class="space-y-4 p-3 bg-slate-50 dark:bg-slate-850 border border-base-200 dark:border-slate-800 rounded-2xl">
+              <!-- Generic Extension Widget Settings -->
+              <div v-if="selectedBlock.type === 'extension-widget' || (selectedBlock.tagName && selectedBlock.tagName.startsWith('ext-'))" class="space-y-4 p-3 bg-slate-50 dark:bg-slate-850 border border-base-200 dark:border-slate-800 rounded-2xl">
                 <div class="flex items-center gap-1.5 pb-1 border-b border-base-200 dark:border-slate-800">
-                  <font-awesome-icon :icon="['fas', 'book-open']" class="w-3 h-3 text-primary" />
-                  <span class="text-[10px] font-black uppercase tracking-wider text-slate-500">E-book Preview Settings</span>
+                  <font-awesome-icon :icon="['fas', 'puzzle-piece']" class="w-3 h-3 text-primary" />
+                  <span class="text-[10px] font-black uppercase tracking-wider text-slate-500">Extension Widget Settings</span>
                 </div>
+                <p class="text-[11px] text-slate-400">Custom Web Component: <code>&lt;{{ selectedBlock.tagName }}&gt;</code></p>
 
-                <div class="form-control">
+                <div v-for="(val, key) in selectedBlock.attributes" :key="key" class="form-control">
                   <label class="label p-0 pb-1">
-                    <span class="label-text text-[10px] font-black uppercase opacity-40">Select Configured Preview</span>
-                  </label>
-                  <select
-                    v-model="selectedBlock.attributes['data-preview-id']"
-                    @change="onPreviewSelect(selectedBlock.attributes['data-preview-id'])"
-                    class="select select-bordered select-xs w-full rounded-lg font-bold text-xs dark:bg-slate-800"
-                  >
-                    <option value="">-- Choose from Previews --</option>
-                    <option v-for="p in configuredPreviews" :key="p.id" :value="p.id">
-                      {{ p.title }} ({{ p.pages?.length || 0 }} pages)
-                    </option>
-                  </select>
-                  <span class="text-[9px] text-slate-400 mt-1">Managed under Extensions &rarr; E-book Previews</span>
-                </div>
-
-                <div class="form-control">
-                  <label class="label p-0 pb-1">
-                    <span class="label-text text-[10px] font-black uppercase opacity-40">Book Title</span>
+                    <span class="label-text text-[10px] font-black uppercase opacity-40">{{ key }}</span>
                   </label>
                   <input
                     type="text"
-                    v-model="selectedBlock.attributes['data-book-title']"
+                    v-model="selectedBlock.attributes[key]"
                     class="input input-bordered input-sm text-xs rounded-xl w-full dark:bg-slate-800"
-                    placeholder="e.g. The Quantum Horizon"
                   />
                 </div>
-
-                <div class="form-control">
-                  <label class="label p-0 pb-1">
-                    <span class="label-text text-[10px] font-black uppercase opacity-40">Author</span>
-                  </label>
-                  <input
-                    type="text"
-                    v-model="selectedBlock.attributes['data-author']"
-                    class="input input-bordered input-sm text-xs rounded-xl w-full dark:bg-slate-800"
-                    placeholder="e.g. Jane Doe"
-                  />
-                </div>
-
-                <div class="form-control">
-                  <label class="label p-0 pb-1">
-                    <span class="label-text text-[10px] font-black uppercase opacity-40">Cover Image URL</span>
-                  </label>
-                  <input
-                    type="text"
-                    v-model="selectedBlock.attributes['data-cover-image']"
-                    class="input input-bordered input-sm text-xs rounded-xl w-full dark:bg-slate-800"
-                    placeholder="https://.../cover.jpg"
-                  />
-                </div>
-
-                <div class="form-control">
-                  <label class="label p-0 pb-1">
-                    <span class="label-text text-[10px] font-black uppercase opacity-40">CTA Button Text</span>
-                  </label>
-                  <input
-                    type="text"
-                    v-model="selectedBlock.attributes['data-cta-text']"
-                    class="input input-bordered input-sm text-xs rounded-xl w-full dark:bg-slate-800"
-                    placeholder="Buy Full Book"
-                  />
-                </div>
-
-                <div class="form-control">
-                  <label class="label p-0 pb-1">
-                    <span class="label-text text-[10px] font-black uppercase opacity-40">CTA Destination URL</span>
-                  </label>
-                  <input
-                    type="text"
-                    v-model="selectedBlock.attributes['data-cta-url']"
-                    class="input input-bordered input-sm text-xs rounded-xl w-full dark:bg-slate-800"
-                    placeholder="/store"
-                  />
-                </div>
-              </div>
-
-              <!-- E-book Redeem Widget Settings -->
-              <div v-if="selectedBlock.type === 'ebook-redeem-widget'" class="space-y-4 p-3 bg-slate-50 dark:bg-slate-850 border border-base-200 dark:border-slate-800 rounded-2xl">
-                <div class="flex items-center gap-1.5 pb-1 border-b border-base-200 dark:border-slate-800">
-                  <font-awesome-icon :icon="['fas', 'ticket']" class="w-3 h-3 text-primary" />
-                  <span class="text-[10px] font-black uppercase tracking-wider text-slate-500">Redemption Card Widget</span>
-                </div>
-                <p class="text-[11px] text-slate-500">
-                  Allows visitors to enter a single-use card code (e.g. <code>READ-XXXX-XXXX</code>) and instantly download their complimentary e-book directly on this page without logging in.
-                </p>
               </div>
 
               <!-- Input Fields Validation and Details -->
@@ -2071,40 +1995,43 @@ const categories = computed(() => [
           children: []
         }
       }] : []),
-      {
-        id: "ebook-preview-widget",
-        label: "E-book Sample Preview",
-        icon: ["fas", "book-open"],
-        template: {
-          type: "ebook-preview-widget",
-          tagName: "div",
-          classes: ["cms-ebook-preview-widget", "my-8"],
-          attributes: {
-            "data-preview-id": "",
-            "data-book-title": "Sample Book Preview",
-            "data-author": "Author Name",
-            "data-cover-image": "",
-            "data-cta-text": "Buy Full Book",
-            "data-cta-url": "/store"
-          },
-          children: []
-        }
-      },
-      {
-        id: "ebook-redeem-widget",
-        label: "E-book Card Redeem",
-        icon: ["fas", "ticket"],
-        template: {
-          type: "ebook-redeem-widget",
-          tagName: "div",
-          classes: ["cms-ebook-redeem-widget", "my-8"],
-          attributes: {},
-          children: []
-        }
-      }
+      ...extensionWidgetPaletteItems.value
     ]
   }
 ]);
+
+const extensionWidgetPaletteItems = ref<any[]>([]);
+
+const loadExtensionWidgets = async () => {
+  try {
+    const res = await fetch("/api/extensions");
+    if (res.ok) {
+      const exts: any[] = await res.json();
+      const items: any[] = [];
+      for (const ext of exts) {
+        if (!ext.enabled) continue;
+        const widgets = Array.isArray(ext.manifest?.widgets) ? ext.manifest.widgets : [];
+        for (const w of widgets) {
+          items.push({
+            id: `ext-${ext.id}-${w.id}`,
+            label: w.label || w.id,
+            icon: Array.isArray(w.icon) ? w.icon : (w.icon ? ["fas", w.icon] : ["fas", "puzzle-piece"]),
+            template: {
+              type: "extension-widget",
+              tagName: w.tag || "div",
+              classes: [`cms-ext-${w.tag || w.id}`, "my-8"],
+              attributes: { ...(w.defaultAttributes || {}) },
+              children: []
+            }
+          });
+        }
+      }
+      extensionWidgetPaletteItems.value = items;
+    }
+  } catch (err) {
+    console.error("Failed to load extension widgets:", err);
+  }
+};
 
 
 // Fetch parameters
@@ -2229,13 +2156,8 @@ function parseHtmlToBlocks(htmlString: string): any[] {
       if (attributes["data-show-search"]) attributes.showSearch = attributes["data-show-search"];
       if (attributes["data-show-categories"]) attributes.showCategories = attributes["data-show-categories"];
     }
-    else if (classes.includes("cms-ebook-preview-widget")) {
-      type = "ebook-preview-widget";
-      if (attributes["data-sample-content"]) {
-        try {
-          attributes["data-sample-content"] = decodeURIComponent(attributes["data-sample-content"]);
-        } catch {}
-      }
+    else if (classes.some((c: string) => c.startsWith("cms-ext-")) || tagName.startsWith("ext-")) {
+      type = "extension-widget";
     }
 
 
@@ -2332,18 +2254,9 @@ function generateCleanHtml(blockList: any[]): string {
       return `${indent}<div class="${widgetClasses}"${styleAttr} data-limit="${limit}" data-default-category="${defaultCategory}"${excludeAttr} data-default-instock="${defaultInStockOnly}" data-show-search="${showSearch}" data-show-categories="${showCategories}"></div>\n`;
     }
 
-    if (block.type === 'ebook-preview-widget') {
-      const bookTitle = block.attributes?.['data-book-title'] || "Sample Book Title";
-      const author = block.attributes?.['data-author'] || "Author Name";
-      const coverImage = block.attributes?.['data-cover-image'] || "";
-      const productId = block.attributes?.['data-product-id'] || "";
-      const sample = block.attributes?.['data-sample-content'] || "Chapter 1: The Beginning\n\nSample preview text...";
-      const encodedSample = encodeURIComponent(sample);
-      let widgetClasses = classes;
-      if (!widgetClasses.includes("cms-ebook-preview-widget")) {
-        widgetClasses = (widgetClasses + " cms-ebook-preview-widget").trim();
-      }
-      return `${indent}<div class="${widgetClasses}" data-book-title="${bookTitle}" data-author="${author}" data-cover-image="${coverImage}" data-product-id="${productId}" data-sample-content="${encodedSample}"></div>\n`;
+    if (block.type === 'extension-widget' || (block.tagName && block.tagName.startsWith('ext-'))) {
+      const tag = block.tagName || 'div';
+      return `${indent}<${tag}${classAttr}${attrs}></${tag}>\n`;
     }
 
 
@@ -2705,38 +2618,10 @@ const publishPage = async () => {
   }
 };
 
-const configuredPreviews = ref<any[]>([]);
-
-const fetchPreviews = async () => {
-  try {
-    const res = await fetch("/api/ebooks/previews");
-    if (res.ok) {
-      configuredPreviews.value = await res.json();
-    }
-  } catch (err) {
-    console.error("Failed to load configured previews:", err);
-  }
-};
-
-const onPreviewSelect = (previewId: string) => {
-  if (!selectedBlock.value) return;
-  const prev = configuredPreviews.value.find(p => p.id === previewId);
-  if (prev) {
-    selectedBlock.value.attributes = selectedBlock.value.attributes || {};
-    selectedBlock.value.attributes['data-preview-id'] = prev.id;
-    selectedBlock.value.attributes['data-book-title'] = prev.title;
-    selectedBlock.value.attributes['data-author'] = prev.author;
-    selectedBlock.value.attributes['data-cover-image'] = prev.coverImage || "";
-    selectedBlock.value.attributes['data-cta-text'] = prev.ctaText || "Buy Full Book";
-    selectedBlock.value.attributes['data-cta-url'] = prev.ctaUrl || `/store`;
-    saveHistoryState();
-  }
-};
-
 onMounted(async () => {
   await fetchSettings();
   await fetchPage();
-  await fetchPreviews();
+  await loadExtensionWidgets();
   
   // Set initial state in history stack
   historyStack.value = [JSON.stringify(blocks.value)];

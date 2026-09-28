@@ -80,10 +80,11 @@ export function validateManifest(raw: any): { valid: boolean; error?: string; ma
       homepage: raw.homepage,
       repository: raw.repository,
       main: raw.main,
-      entry: raw.entry,
       files: Array.isArray(raw.files) ? raw.files : [],
+      adminPages: Array.isArray(raw.adminPages) ? raw.adminPages : [],
       widgets: Array.isArray(raw.widgets) ? raw.widgets : [],
-      routes: Array.isArray(raw.routes) ? raw.routes : [],
+      publicRoutes: Array.isArray(raw.publicRoutes) ? raw.publicRoutes : [],
+      server: raw.server,
     },
   };
 }
@@ -204,10 +205,21 @@ export async function fetchGitManifest(gitUrl: string, ref = "main"): Promise<{
   const filesToFetch: string[] = [];
   if (manifest.entry) filesToFetch.push(manifest.entry);
   if (manifest.main) filesToFetch.push(manifest.main);
+  if (manifest.server) filesToFetch.push(manifest.server);
   if (Array.isArray(manifest.files)) filesToFetch.push(...manifest.files);
   if (Array.isArray(manifest.widgets)) {
     for (const w of manifest.widgets) {
       if (w.script) filesToFetch.push(w.script);
+    }
+  }
+  if (Array.isArray(manifest.adminPages)) {
+    for (const p of manifest.adminPages) {
+      if (p.script) filesToFetch.push(p.script);
+    }
+  }
+  if (Array.isArray(manifest.publicRoutes)) {
+    for (const r of manifest.publicRoutes) {
+      if (r.script) filesToFetch.push(r.script);
     }
   }
 

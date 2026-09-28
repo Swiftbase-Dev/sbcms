@@ -1,4 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import fs from "fs";
+import path from "path";
 import { db } from "swiftbase-admin-sdk";
 import type { CMSExtension } from "swiftbase-cms-shared";
 import {
@@ -189,6 +191,152 @@ export function registerExtensionRoutes(app: FastifyInstance) {
     } catch (err: any) {
       request.log.error(err, `Failed to uninstall extension ${request.params.id}`);
       return reply.status(500).send({ message: err.message || "Failed to uninstall extension" });
+    }
+  });
+
+  // 6. Serve extension static assets (scripts, styles, icons) from Object Storage or local fallback
+  app.get("/extensions/:id/assets/*", async (
+    request: FastifyRequest<{ Params: { id: string; "*": string } }>,
+    reply: FastifyReply
+  ) => {
+    try {
+      const { id } = request.params;
+      const assetPath = (request.params as any)["*"];
+      if (!assetPath) {
+        return reply.status(404).send({ message: "Asset path is required" });
+      }
+
+      // 1. Check local directory fallback (for development / local extensions)
+      const possibleLocalPaths = [
+        path.resolve(process.cwd(), "../extensions", id, assetPath),
+        path.resolve(process.cwd(), "../../extensions", id, assetPath),
+        path.resolve("/Users/bchiappetta/Projects/swiftbase/extensions", id, assetPath),
+      ];
+
+      for (const p of possibleLocalPaths) {
+        if (fs.existsSync(p) && fs.statSync(p).isFile()) {
+          const content = fs.readFileSync(p);
+          const ext = path.extname(p).toLowerCase();
+          const contentType =
+            ext === ".js" ? "application/javascript" :
+            ext === ".css" ? "text/css" :
+            ext === ".json" ? "application/json" :
+            ext === ".svg" ? "image/svg+xml" :
+            "application/octet-stream";
+
+          reply.header("Content-Type", contentType);
+          reply.header("Cache-Control", "no-cache");
+          return reply.send(content);
+        }
+      }
+
+      // 2. Fetch from Object Storage
+      const { Storage } = await import("swiftbase-admin-sdk");
+      const bucket = process.env.SWIFTBASE_STORAGE_BUCKET || "swiftbase-cms-storage";
+      const endpoint = `${(process.env.SWIFTBASE_URL || process.env.SWIFTBASE_BASE_URL || process.env.SWIFTBASE_API_URL || "https://api.swiftbase.io").replace(/\/$/, "")}/storage`;
+      const storage = new Storage({ bucket, endpoint });
+
+      const storageKey = `extensions/${id}/${assetPath}`;
+      const obj = await storage.getObject(storageKey);
+      const buffer = await obj.arrayBuffer();
+
+      const ext = path.extname(assetPath).toLowerCase();
+      const contentType =
+        ext === ".js" ? "application/javascript" :
+        ext === ".css" ? "text/css" :
+        ext === ".json" ? "application/json" :
+        ext === ".svg" ? "image/svg+xml" :
+        obj.headers.get("Content-Type") || "application/octet-stream";
+
+      reply.header("Content-Type", contentType);
+      reply.header("Cache-Control", "no-cache");
+      return reply.send(Buffer.from(buffer));
+    } catch (err: any) {
+      request.log.warn(`Extension asset not found (${request.params.id}): ${err.message}`);
+      return reply.status(404).send({ message: "Asset not found" });
+    }
+  });
+
+  // 7. Generic Extension Key-Value / Document Store API
+  app.get("/extensions/:id/data/:collection", async (
+    request: FastifyRequest<{ Params: { id: string; collection: string }; Querystring: { key?: string } }>,
+    reply: FastifyReply
+  ) => {
+    try {
+      const { id, collection } = request.params;
+      const { key } = (request.query as any) || {};
+      const database = getDb();
+
+      let query = database("cms_extension_data").where({ extensionId: id, collection });
+      if (key) {
+        query = query.where({ key });
+      }
+      const res = await query.execute();
+      const records = (res.data || []).map((r: any) => ({
+        id: r.id,
+        key: r.key,
+        data: parseJsonField(r.data, {}),
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      }));
+
+      return reply.send(key ? (records[0] || null) : records);
+    } catch (err: any) {
+      return reply.status(500).send({ message: err.message });
+    }
+  });
+
+  app.post("/extensions/:id/data/:collection", async (
+    request: FastifyRequest<{ Params: { id: string; collection: string }; Body: { key: string; data: any } }>,
+    reply: FastifyReply
+  ) => {
+    try {
+      const { id, collection } = request.params;
+      const { key, data } = request.body || {};
+      if (!key) return reply.status(400).send({ message: "key is required" });
+
+      const database = getDb();
+      const now = new Date().toISOString();
+      const existing = await database("cms_extension_data").where({ extensionId: id, collection, key }).execute();
+
+      if (existing.data && existing.data.length > 0) {
+        await database("cms_extension_data").where({ id: existing.data[0].id }).update({
+          data: JSON.stringify(data),
+          updatedAt: now,
+        }).execute();
+      } else {
+        const recordId = `ext_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        await database("cms_extension_data").insert({
+          id: recordId,
+          extensionId: id,
+          collection,
+          key,
+          data: JSON.stringify(data),
+          createdAt: now,
+          updatedAt: now,
+        }).execute();
+      }
+
+      return reply.send({ success: true, key, data });
+    } catch (err: any) {
+      return reply.status(500).send({ message: err.message });
+    }
+  });
+
+  app.delete("/extensions/:id/data/:collection", async (
+    request: FastifyRequest<{ Params: { id: string; collection: string }; Querystring: { key: string } }>,
+    reply: FastifyReply
+  ) => {
+    try {
+      const { id, collection } = request.params;
+      const { key } = (request.query as any) || {};
+      if (!key) return reply.status(400).send({ message: "key is required" });
+
+      const database = getDb();
+      await database("cms_extension_data").where({ extensionId: id, collection, key }).delete().execute();
+      return reply.send({ success: true });
+    } catch (err: any) {
+      return reply.status(500).send({ message: err.message });
     }
   });
 }

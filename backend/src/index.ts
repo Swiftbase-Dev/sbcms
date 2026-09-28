@@ -16,7 +16,6 @@ import { registerAssetRoutes } from "./controllers/assets.controller.js";
 import { registerSearchRoutes } from "./controllers/search.controller.js";
 import { registerCommentRoutes } from "./controllers/comments.controller.js";
 import { registerExtensionRoutes } from "./controllers/extension.controller.js";
-import { registerEbookRoutes } from "./controllers/ebook.controller.js";
 
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -235,71 +234,16 @@ async function start() {
           )`
         },
         {
-          dbname: 'cms_ebook_files',
-          name: 'CMS Ebook Files',
-          ddl: `CREATE TABLE IF NOT EXISTS "cms_ebook_files" (
+          dbname: 'cms_extension_data',
+          name: 'CMS Extension Data',
+          ddl: `CREATE TABLE IF NOT EXISTS "cms_extension_data" (
             "id" VARCHAR(255) PRIMARY KEY,
-            "productId" VARCHAR(255),
-            "format" VARCHAR(50),
-            "fileUrl" VARCHAR(500),
-            "fileName" VARCHAR(255),
-            "fileSizeBytes" INTEGER,
-            "createdAt" VARCHAR(255)
-          )`
-        },
-        {
-          dbname: 'cms_ebook_distributions',
-          name: 'CMS Ebook Distributions',
-          ddl: `CREATE TABLE IF NOT EXISTS "cms_ebook_distributions" (
-            "id" VARCHAR(255) PRIMARY KEY,
-            "token" VARCHAR(255) UNIQUE,
-            "type" VARCHAR(50),
-            "code" VARCHAR(100),
-            "productId" VARCHAR(255),
-            "productTitle" VARCHAR(255),
-            "recipientName" VARCHAR(255),
-            "recipientEmail" VARCHAR(255),
-            "message" TEXT,
-            "maxDownloads" INTEGER DEFAULT 5,
-            "downloadCount" INTEGER DEFAULT 0,
-            "isRedeemed" BOOLEAN DEFAULT false,
-            "redeemedAt" VARCHAR(255),
-            "expiresAt" VARCHAR(255),
-            "createdAt" VARCHAR(255)
-          )`
-        },
-        {
-          dbname: 'cms_ebook_previews',
-          name: 'CMS Ebook Previews',
-          ddl: `CREATE TABLE IF NOT EXISTS "cms_ebook_previews" (
-            "id" VARCHAR(255) PRIMARY KEY,
-            "productId" VARCHAR(255),
-            "title" VARCHAR(255),
-            "author" VARCHAR(255),
-            "coverImage" VARCHAR(500),
-            "sourceFormat" VARCHAR(50),
-            "sourceFileUrl" VARCHAR(500),
-            "extractionConfig" TEXT,
-            "pages" TEXT,
-            "ctaText" VARCHAR(100),
-            "ctaUrl" VARCHAR(500),
-            "viewsCount" INTEGER DEFAULT 0,
-            "readsCount" INTEGER DEFAULT 0,
-            "clicksCount" INTEGER DEFAULT 0,
+            "extensionId" VARCHAR(255),
+            "collection" VARCHAR(255),
+            "key" VARCHAR(255),
+            "data" JSONB,
             "createdAt" VARCHAR(255),
             "updatedAt" VARCHAR(255)
-          )`
-        },
-        {
-          dbname: 'cms_ebook_preview_events',
-          name: 'CMS Ebook Preview Events',
-          ddl: `CREATE TABLE IF NOT EXISTS "cms_ebook_preview_events" (
-            "id" VARCHAR(255) PRIMARY KEY,
-            "previewId" VARCHAR(255),
-            "eventType" VARCHAR(50),
-            "pageNumber" INTEGER DEFAULT 1,
-            "sessionId" VARCHAR(255),
-            "createdAt" VARCHAR(255)
           )`
         }
       ];
@@ -752,13 +696,6 @@ async function start() {
     }
   });
 
-  app.get("/download/:token", async (request, reply) => {
-    return reply.sendFile("index.html");
-  });
-
-  app.get("/redeem", async (request, reply) => {
-    return reply.sendFile("index.html");
-  });
 
   app.get("/admin", async (request, reply) => {
     return reply.redirect("/admin/");
@@ -769,7 +706,7 @@ async function start() {
     if (slug === "admin") {
       return reply.redirect("/admin/");
     }
-    if (slug === "api" || slug === "blog" || slug === "store" || slug === "checkout" || slug === "download" || slug === "redeem") {
+    if (slug === "api" || slug === "blog" || slug === "store" || slug === "checkout") {
       return reply.code(404).send({ error: "Not Found" });
     }
     return servePage(request, reply, slug);
@@ -780,7 +717,8 @@ async function start() {
     if (request.url.startsWith("/api")) {
       return reply.code(404).send({ error: "API Route Not Found" });
     }
-    if (request.url.startsWith("/admin") || request.url.startsWith("/download") || request.url.startsWith("/redeem")) {
+    // Allow SPA frontend to handle /admin, extension public routes, or any registered client route
+    if (request.url.startsWith("/admin") || request.url.startsWith("/ext-public") || request.headers.accept?.includes("text/html")) {
       return reply.sendFile("index.html");
     }
     return reply.code(404).send({ error: "Not Found" });
@@ -797,7 +735,6 @@ async function start() {
     registerSearchRoutes(api);
     registerCommentRoutes(api);
     registerExtensionRoutes(api);
-    registerEbookRoutes(api);
   }, { prefix: "/api", bodyLimit: 52428800 });
 
 

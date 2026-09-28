@@ -9,9 +9,8 @@ import Settings from "../views/Settings.vue";
 import Profile from "../views/Profile.vue";
 import Gallery from "../views/Gallery.vue";
 import Extensions from "../views/Extensions.vue";
-import EbookPreviewsView from "../views/EbookPreviewsView.vue";
-import EbookDistributionView from "../views/EbookDistributionView.vue";
-import EbookDownload from "../views/EbookDownload.vue";
+import ExtensionHostView from "../views/ExtensionHostView.vue";
+import ExtensionPublicHostView from "../views/ExtensionPublicHostView.vue";
 
 const routes = [
   { path: "/", redirect: "/dashboard" },
@@ -22,10 +21,10 @@ const routes = [
   { path: "/blog/edit/:id", component: BlogEditor, props: true },
   { path: "/store", component: Store },
   { path: "/extensions", component: Extensions },
-  { path: "/extensions/ebook-previews", component: EbookPreviewsView },
-  { path: "/extensions/ebook-distribution", component: EbookDistributionView },
-  { path: "/download/:token", component: EbookDownload },
-  { path: "/redeem", component: EbookDownload },
+  { path: "/extensions/:extId/:pageId", component: ExtensionHostView },
+  { path: "/ext-public/:pathMatch(.*)*", component: ExtensionPublicHostView },
+  { path: "/download/:token", component: ExtensionPublicHostView },
+  { path: "/redeem", component: ExtensionPublicHostView },
   { path: "/settings/edit-navbar", component: PageDesigner, props: { id: "navbar" } },
   { path: "/settings/edit-footer", component: PageDesigner, props: { id: "footer" } },
   { path: "/settings", component: Settings },

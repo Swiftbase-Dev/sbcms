@@ -224,45 +224,4 @@ export function formatNewOrderAdminNotificationEmail(params: {
   return { subject, htmlBody };
 }
 
-export function formatFreeEbookNotificationEmail(params: {
-  siteTitle: string;
-  recipientName?: string;
-  bookTitle: string;
-  downloadUrl: string;
-  message?: string;
-}): { subject: string; htmlBody: string } {
-  const subject = `📖 Your complimentary copy of "${params.bookTitle}" is ready!`;
-  const customMessageHtml = params.message
-    ? `<div style="margin: 20px 0; padding: 16px; background-color: #f8fafc; border-left: 4px solid #6366f1; border-radius: 4px; font-style: italic; color: #334155; font-size: 14px;">
-        "${params.message.replace(/\n/g, '<br>')}"
-      </div>`
-    : "";
-
-  const htmlBody = `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 20px; color: #1e293b; line-height: 1.6;">
-      <h1 style="font-size: 24px; font-weight: 800; color: #0f172a; margin-bottom: 8px;">You've received a book! 📚</h1>
-      <p style="font-size: 15px; color: #475569; margin-top: 0;">
-        Hello ${params.recipientName || "there"}, you have been sent a complimentary digital copy of <strong>"${params.bookTitle}"</strong> from <strong>${params.siteTitle}</strong>.
-      </p>
-
-      ${customMessageHtml}
-
-      <div style="margin: 28px 0; text-align: center;">
-        <a href="${params.downloadUrl}" style="display: inline-block; background-color: #6366f1; color: #ffffff; padding: 14px 28px; border-radius: 10px; text-decoration: none; font-weight: 800; font-size: 15px; box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.3);">
-          Download E-book &rarr;
-        </a>
-      </div>
-
-      <p style="font-size: 13px; color: #64748b; line-height: 1.5;">
-        You can choose from multiple formats (EPUB, Kindle, PDF) and view simple instructions on how to load it onto your Kindle, Apple Books, Kobo, or mobile device.
-      </p>
-
-      <p style="margin-top: 32px; font-size: 12px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 20px;">
-        Sent via ${params.siteTitle} E-book Distribution.
-      </p>
-    </div>
-  `;
-
-  return { subject, htmlBody };
-}
 

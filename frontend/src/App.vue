@@ -106,16 +106,13 @@
                     Installed & Store
                   </router-link>
                 </li>
-                <li>
-                  <router-link to="/extensions/ebook-previews" active-class="text-primary font-black bg-primary/10" class="block py-1.5 px-3 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors">
-                    E-book Previews
-                  </router-link>
-                </li>
-                <li>
-                  <router-link to="/extensions/ebook-distribution" active-class="text-primary font-black bg-primary/10" class="block py-1.5 px-3 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors">
-                    E-book Distribution
-                  </router-link>
-                </li>
+                <template v-for="ext in enabledExtensionsWithPages" :key="ext.id">
+                  <li v-for="page in ext.manifest.adminPages" :key="`${ext.id}-${page.id}`">
+                    <router-link :to="`/extensions/${ext.id}/${page.id}`" active-class="text-primary font-black bg-primary/10" class="block py-1.5 px-3 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors">
+                      {{ page.label }}
+                    </router-link>
+                  </li>
+                </template>
               </ul>
 
               <!-- Flyout menu in collapsed sidebar mode -->
@@ -124,14 +121,13 @@
                   Extensions
                 </div>
                 <router-link to="/extensions" class="block py-1.5 px-3 rounded-xl hover:bg-white/5 text-xs text-slate-300 hover:text-white">
-                  All Extensions
+                  Installed & Store
                 </router-link>
-                <router-link to="/extensions/ebook-previews" class="block py-1.5 px-3 rounded-xl hover:bg-white/5 text-xs text-slate-300 hover:text-white">
-                  E-book Previews
-                </router-link>
-                <router-link to="/extensions/ebook-distribution" class="block py-1.5 px-3 rounded-xl hover:bg-white/5 text-xs text-slate-300 hover:text-white">
-                  E-book Distribution
-                </router-link>
+                <template v-for="ext in enabledExtensionsWithPages" :key="ext.id">
+                  <router-link v-for="page in ext.manifest.adminPages" :key="`${ext.id}-${page.id}`" :to="`/extensions/${ext.id}/${page.id}`" class="block py-1.5 px-3 rounded-xl hover:bg-white/5 text-xs text-slate-300 hover:text-white">
+                    {{ page.label }}
+                  </router-link>
+                </template>
               </div>
             </li>
             <li>
@@ -265,8 +261,26 @@ const toggleExtensionsCollapse = () => {
   extensionsMenuExpanded.value = !extensionsMenuExpanded.value;
 };
 
+const installedExtensions = ref<any[]>([]);
+const enabledExtensionsWithPages = computed(() => {
+  return installedExtensions.value.filter(
+    (ext) => ext.enabled && Array.isArray(ext.manifest?.adminPages) && ext.manifest.adminPages.length > 0
+  );
+});
+
+const loadInstalledExtensions = async () => {
+  try {
+    const res = await fetch("/api/extensions");
+    if (res.ok) {
+      installedExtensions.value = await res.json();
+    }
+  } catch (err) {
+    console.error("Failed to load extensions for navigation:", err);
+  }
+};
+
 const isPublicRoute = computed(() => {
-  return route.path.startsWith("/download") || route.path.startsWith("/redeem");
+  return route.path.startsWith("/download") || route.path.startsWith("/redeem") || route.path.startsWith("/ext-public");
 });
 
 
@@ -366,6 +380,7 @@ onMounted(() => {
 
   fetchSettings();
   fetchProfile();
+  loadInstalledExtensions();
 
   // Listen for Cmd+K / Ctrl+K to open search modal, and Esc to close
   window.addEventListener("keydown", (e) => {
@@ -383,6 +398,7 @@ onMounted(() => {
 watch(() => route.path, () => {
   fetchSettings();
   fetchProfile();
+  loadInstalledExtensions();
 });
 
 // Global Search state and actions
