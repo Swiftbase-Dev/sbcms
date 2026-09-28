@@ -28,7 +28,7 @@ export const SUPPORTED_PERMISSIONS: Record<ExtensionPermission, { title: string;
 
 function getStorageInstance() {
   const bucket = process.env.SWIFTBASE_STORAGE_BUCKET || "swiftbase-cms-storage";
-  const endpoint = `${(process.env.SWIFTBASE_URL || process.env.SWIFTBASE_API_URL || "https://api.swiftbase.io").replace(/\/$/, "")}/storage`;
+  const endpoint = `${(process.env.SWIFTBASE_URL || process.env.SWIFTBASE_BASE_URL || process.env.SWIFTBASE_API_URL || "https://api.swiftbase.io").replace(/\/$/, "")}/storage`;
   return new Storage({ bucket, endpoint });
 }
 
@@ -260,7 +260,7 @@ export async function installExtensionBundle(manifest: ExtensionManifest, files:
   // Always store manifest.json in the storage bucket
   const manifestBuffer = Buffer.from(JSON.stringify(manifest, null, 2), "utf-8");
   await storage.putObject(`${baseKey}/manifest.json`, manifestBuffer, {
-    contentType: "application/json",
+    contentType: "text/plain",
   });
 
   // Upload any additional files (scripts, styles, assets)
@@ -270,7 +270,7 @@ export async function installExtensionBundle(manifest: ExtensionManifest, files:
     const contentType = 
       ext === ".js" ? "application/javascript" :
       ext === ".css" ? "text/css" :
-      ext === ".json" ? "application/json" :
+      ext === ".json" ? "text/plain" :
       ext === ".svg" ? "image/svg+xml" :
       "application/octet-stream";
 
