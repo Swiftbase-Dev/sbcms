@@ -522,12 +522,31 @@
               </div>
 
               <!-- Generic Extension Widget Settings -->
+              <!-- Generic Extension Widget Settings -->
               <div v-if="selectedBlock.type === 'extension-widget' || (selectedBlock.tagName && selectedBlock.tagName.startsWith('ext-'))" class="space-y-4 p-3 bg-slate-50 dark:bg-slate-850 border border-base-200 dark:border-slate-800 rounded-2xl">
                 <div class="flex items-center gap-1.5 pb-1 border-b border-base-200 dark:border-slate-800">
                   <font-awesome-icon :icon="['fas', 'puzzle-piece']" class="w-3 h-3 text-primary" />
                   <span class="text-[10px] font-black uppercase tracking-wider text-slate-500">Extension Widget Settings</span>
                 </div>
                 <p class="text-[11px] text-slate-400">Custom Web Component: <code>&lt;{{ selectedBlock.tagName }}&gt;</code></p>
+
+                <!-- Dedicated preview picker for ext-ebook-preview -->
+                <div v-if="selectedBlock.tagName === 'ext-ebook-preview'" class="form-control mb-2">
+                  <label class="label p-0 pb-1">
+                    <span class="label-text text-[10px] font-black uppercase text-primary">Select Saved Preview</span>
+                  </label>
+                  <select
+                    :value="selectedBlock.attributes?.['data-preview-id'] || ''"
+                    @change="onSelectEbookPreview"
+                    class="select select-bordered select-sm text-xs rounded-xl w-full dark:bg-slate-800 font-medium"
+                  >
+                    <option value="">-- Choose Existing Preview --</option>
+                    <option v-for="prev in availableEbookPreviews" :key="prev.id" :value="prev.id">
+                      {{ prev.title }} (by {{ prev.author }})
+                    </option>
+                  </select>
+                  <p class="text-[10px] opacity-60 mt-1">Selecting a preview auto-populates book title, author, cover, and pages.</p>
+                </div>
 
                 <div v-for="(val, key) in selectedBlock.attributes" :key="key" class="form-control">
                   <label class="label p-0 pb-1">
@@ -2001,6 +2020,44 @@ const categories = computed(() => [
 ]);
 
 const extensionWidgetPaletteItems = ref<any[]>([]);
+const availableEbookPreviews = ref<any[]>([]);
+
+const loadEbookPreviews = async () => {
+  try {
+    const res = await fetch("/api/extensions/ebook-preview/data/previews");
+    if (res.ok) {
+      const data = await res.json();
+      availableEbookPreviews.value = Array.isArray(data) ? data : [];
+    }
+  } catch (err) {
+    // If ebook-preview extension is not installed or data endpoint fails, quietly ignore
+    console.debug("Could not load ebook previews:", err);
+  }
+};
+
+const onSelectEbookPreview = (e: Event) => {
+  const target = e.target as HTMLSelectElement;
+  const previewId = target.value;
+  if (!selectedBlock.value) return;
+  if (!selectedBlock.value.attributes) {
+    selectedBlock.value.attributes = {};
+  }
+  selectedBlock.value.attributes["data-preview-id"] = previewId;
+  const found = availableEbookPreviews.value.find(p => p.id === previewId);
+  if (found) {
+    if (found.title) selectedBlock.value.attributes["data-book-title"] = found.title;
+    if (found.author) selectedBlock.value.attributes["data-author"] = found.author;
+    if (found.coverImage) selectedBlock.value.attributes["data-cover-image"] = found.coverImage;
+    if (found.ctaText) selectedBlock.value.attributes["data-cta-text"] = found.ctaText;
+    if (found.ctaUrl) selectedBlock.value.attributes["data-cta-url"] = found.ctaUrl;
+    if (found.pages) {
+      try {
+        selectedBlock.value.attributes["data-pages"] = JSON.stringify(found.pages);
+      } catch (err) {}
+    }
+  }
+  saveHistoryState();
+};
 
 const loadExtensionWidgets = async () => {
   try {
@@ -2008,8 +2065,10 @@ const loadExtensionWidgets = async () => {
     if (res.ok) {
       const exts: any[] = await res.json();
       const items: any[] = [];
+      let hasEbookPreview = false;
       for (const ext of exts) {
         if (!ext.enabled) continue;
+        if (ext.id === "ebook-preview") hasEbookPreview = true;
         const widgets = Array.isArray(ext.manifest?.widgets) ? ext.manifest.widgets : [];
         for (const w of widgets) {
           items.push({
@@ -2027,6 +2086,9 @@ const loadExtensionWidgets = async () => {
         }
       }
       extensionWidgetPaletteItems.value = items;
+      if (hasEbookPreview) {
+        await loadEbookPreviews();
+      }
     }
   } catch (err) {
     console.error("Failed to load extension widgets:", err);

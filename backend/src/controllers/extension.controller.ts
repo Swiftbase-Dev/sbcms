@@ -8,6 +8,8 @@ import {
   installExtensionBundle,
   deleteExtensionBundle,
 } from "./extension.engine.js";
+import { sendPostmarkEmail } from "./email.helper.js";
+
 
 function getDb() {
   const dbName = process.env.SWIFTBASE_DATABASE_NAME || "cms";
@@ -339,4 +341,82 @@ export function registerExtensionRoutes(app: FastifyInstance) {
       return reply.status(500).send({ message: err.message });
     }
   });
+
+  // 8. Extension Transactional Email Dispatch Endpoint (Permission: email:send)
+  app.post("/extensions/:id/email", async (
+    request: FastifyRequest<{
+      Params: { id: string };
+      Body: {
+        to: string;
+        subject: string;
+        htmlBody: string;
+        textBody?: string;
+        replyTo?: string;
+      };
+    }>,
+    reply: FastifyReply
+  ) => {
+    try {
+      const { id } = request.params;
+      const { to, subject, htmlBody, textBody, replyTo } = request.body || {};
+
+      if (!to || !subject || !htmlBody) {
+        return reply.status(400).send({ message: "to, subject, and htmlBody are required" });
+      }
+
+      const database = getDb();
+      const extRes = await database("cms_extensions").where({ id }).execute();
+      if (!extRes.data || extRes.data.length === 0) {
+        return reply.status(404).send({ message: "Extension not found" });
+      }
+
+      const ext = normalizeExtension(extRes.data[0]);
+      if (!ext.enabled) {
+        return reply.status(403).send({ message: "Extension is disabled" });
+      }
+
+      const permissions = ext.permissions || [];
+      if (!permissions.includes("email:send")) {
+        return reply.status(403).send({
+          message: `Extension does not have the 'email:send' permission declared in its manifest.`,
+        });
+      }
+
+      // Fetch CMS settings to retrieve Postmark configuration
+      const settingsRes = await database("cms_settings").execute();
+      const rawSettings = settingsRes.data && settingsRes.data[0] ? settingsRes.data[0] : {};
+      const apiToken = rawSettings.postmarkApiToken ?? rawSettings.postmarkapitoken;
+      const fromEmail = rawSettings.postmarkFromEmail ?? rawSettings.postmarkfromemail;
+
+      if (!apiToken || !fromEmail) {
+        request.log.warn(`Postmark email not configured in CMS settings. Email to ${to} skipped.`);
+        return reply.status(200).send({
+          success: false,
+          warning: "Postmark email settings (postmarkApiToken, postmarkFromEmail) are not configured in CMS Settings.",
+        });
+      }
+
+      const result = await sendPostmarkEmail({
+        apiToken,
+        from: fromEmail,
+        to,
+        subject,
+        htmlBody,
+        textBody,
+        replyTo,
+      });
+
+      if (!result.success) {
+        request.log.error(`Extension (${id}) email dispatch failed: ${result.error}`);
+        return reply.status(502).send({ message: result.error || "Email delivery failed" });
+      }
+
+      request.log.info(`Extension (${id}) email sent successfully to ${to} (MessageID: ${result.messageId})`);
+      return reply.send({ success: true, messageId: result.messageId });
+    } catch (err: any) {
+      request.log.error(err, `Failed to dispatch extension email: ${err.message}`);
+      return reply.status(500).send({ message: err.message });
+    }
+  });
 }
+
