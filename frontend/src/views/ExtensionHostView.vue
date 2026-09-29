@@ -84,20 +84,25 @@ const loadExtensionComponent = async () => {
 
     activePage.value = page;
 
-    // Load Web Component bundle script
-    const scriptUrl = `/api/extensions/${ext.id}/assets/${page.script.replace(/^\//, '')}`;
+    // Load Web Component bundle script with version cache busting
+    const versionParam = ext.version || ext.updatedAt || Date.now();
+    const scriptBase = `/api/extensions/${ext.id}/assets/${page.script.replace(/^\//, '')}`;
+    const scriptUrl = `${scriptBase}?v=${versionParam}`;
     
     // Inject module script if not already present
     await new Promise<void>((resolve, reject) => {
-      const existing = document.querySelector(`script[data-ext-script="${scriptUrl}"]`);
+      const existing = document.querySelector(`script[data-ext-script="${scriptBase}"]`);
       if (existing) {
-        resolve();
-        return;
+        if (existing.getAttribute("src") === scriptUrl) {
+          resolve();
+          return;
+        }
+        existing.remove();
       }
       const script = document.createElement("script");
       script.type = "module";
       script.src = scriptUrl;
-      script.dataset.extScript = scriptUrl;
+      script.dataset.extScript = scriptBase;
       script.onload = () => resolve();
       script.onerror = () => reject(new Error(`Failed to load extension script: ${scriptUrl}`));
       document.head.appendChild(script);
