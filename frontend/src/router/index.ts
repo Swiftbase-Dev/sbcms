@@ -33,7 +33,9 @@ const routes = [
 ];
 
 
+const historyBase = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "";
+
 export const router = createRouter({
-  history: createWebHistory("/admin"),
+  history: createWebHistory(historyBase),
   routes,
 });

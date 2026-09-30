@@ -51,7 +51,13 @@ const bootstrap = async () => {
 
   // Setup route authentication guard
   router.beforeEach(async (to, from, next) => {
-    const isPublicRoute = to.path.startsWith("/download") || to.path.startsWith("/redeem");
+    const isPublicRoute =
+      to.path.startsWith("/download") ||
+      to.path.startsWith("/redeem") ||
+      to.path.startsWith("/ext-public") ||
+      window.location.pathname.startsWith("/download") ||
+      window.location.pathname.startsWith("/redeem") ||
+      window.location.pathname.startsWith("/ext-public");
     if (isPublicRoute) {
       return next();
     }
@@ -74,7 +80,10 @@ const bootstrap = async () => {
   });
 
   // Force OIDC redirect check on initial boot if not authenticated, not callback, and not public route
-  const isPublicPath = window.location.pathname.startsWith("/download") || window.location.pathname.startsWith("/redeem");
+  const isPublicPath =
+    window.location.pathname.startsWith("/download") ||
+    window.location.pathname.startsWith("/redeem") ||
+    window.location.pathname.startsWith("/ext-public");
   const initialParams = new URLSearchParams(window.location.search);
   const isInitialCallback = initialParams.has("code") && initialParams.has("state");
   if (!isLoggedIn() && !isInitialCallback && !isPublicPath) {

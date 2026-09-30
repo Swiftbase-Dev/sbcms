@@ -701,12 +701,23 @@ async function start() {
     return reply.redirect("/admin/");
   });
 
+  // Public extension frontend host routes (download hub, redemption, etc.)
+  app.get("/download/*", async (request, reply) => {
+    return reply.sendFile("index.html");
+  });
+  app.get("/redeem", async (request, reply) => {
+    return reply.sendFile("index.html");
+  });
+  app.get("/ext-public/*", async (request, reply) => {
+    return reply.sendFile("index.html");
+  });
+
   app.get("/:slug", async (request: any, reply) => {
     const { slug } = request.params;
     if (slug === "admin") {
       return reply.redirect("/admin/");
     }
-    if (slug === "api" || slug === "blog" || slug === "store" || slug === "checkout") {
+    if (slug === "api" || slug === "blog" || slug === "store" || slug === "checkout" || slug === "download" || slug === "redeem" || slug === "ext-public") {
       return reply.code(404).send({ error: "Not Found" });
     }
     return servePage(request, reply, slug);
@@ -718,7 +729,13 @@ async function start() {
       return reply.code(404).send({ error: "API Route Not Found" });
     }
     // Allow SPA frontend to handle /admin, extension public routes, or any registered client route
-    if (request.url.startsWith("/admin") || request.url.startsWith("/ext-public") || request.headers.accept?.includes("text/html")) {
+    if (
+      request.url.startsWith("/admin") ||
+      request.url.startsWith("/download") ||
+      request.url.startsWith("/redeem") ||
+      request.url.startsWith("/ext-public") ||
+      request.headers.accept?.includes("text/html")
+    ) {
       return reply.sendFile("index.html");
     }
     return reply.code(404).send({ error: "Not Found" });
